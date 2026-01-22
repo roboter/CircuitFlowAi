@@ -3,7 +3,6 @@ import React from 'react';
 import { PCBComponent, Trace, Vector2, Pin } from './types';
 import { SNAP_SIZE } from './constants';
 import { generateBezierPath, getBezierControlPoints } from './utils/pcbUtils';
-import { Lock } from 'lucide-react';
 
 interface CanvasProps {
   boardRef: React.RefObject<SVGSVGElement>;
@@ -70,16 +69,32 @@ const Canvas: React.FC<CanvasProps> = ({
           return (
             <g key={c.id} transform={`translate(${c.position.x}, ${c.position.y}) rotate(${c.rotation}, ${cx}, ${cy})`}>
               {!isJ && (
-                foot.shape === 'circle' ? (
-                  <circle cx={cx} cy={cy} r={Math.max(foot.width, foot.height) / 2} fill={isS ? '#10b98110' : 'transparent'} stroke={isS || isH ? '#10B981' : '#27272a'} strokeWidth={isS || isH ? "3" : "1.5"} />
-                ) : (
-                  <rect width={foot.width} height={foot.height} fill={isS ? '#10b98110' : 'transparent'} stroke={isS || isH ? '#10B981' : '#27272a'} strokeWidth={isS || isH ? "3" : "1.5"} rx="4" />
-                )
+                <>
+                  {foot.shape === 'circle' ? (
+                    <>
+                      <circle cx={cx} cy={cy} r={Math.max(foot.width, foot.height) / 2} fill={isS ? '#10b98110' : 'transparent'} stroke={isS || isH ? '#10B981' : '#27272a'} strokeWidth={isS || isH ? "3" : "1.5"} />
+                      {foot.id === 'led' && (
+                        <path 
+                          d={`M ${cx + 18} ${cy - 12} L ${cx + 18} ${cy + 12}`} 
+                          stroke={isS || isH ? '#10B981' : '#27272a'} 
+                          strokeWidth="2"
+                        />
+                      )}
+                    </>
+                  ) : (
+                    <rect width={foot.width} height={foot.height} fill={isS ? '#10b98110' : 'transparent'} stroke={isS || isH ? '#10B981' : '#27272a'} strokeWidth={isS || isH ? "3" : "1.5"} rx="4" />
+                  )}
+                </>
               )}
               {foot.pins.map(pin => (
                 <g key={pin.id} transform={`translate(${pin.localPos.x}, ${pin.localPos.y})`}>
                   <circle r="8" fill="#18181b" stroke="#065F46" strokeWidth="2" />
                   <circle r="2.5" fill={pin.type === 'power' ? '#ef4444' : (pin.type === 'ground' ? '#3b82f6' : '#FCD34D')} />
+                  {pin.decoration === 'plus' && (
+                    <g transform="translate(0, -12)">
+                      <path d="M -3 0 L 3 0 M 0 -3 L 0 3" stroke="#FCD34D" strokeWidth="1.5" />
+                    </g>
+                  )}
                 </g>
               ))}
               {!isJ && <text x={cx} y={-10} textAnchor="middle" fill={isS || isH ? "#10B981" : "#3f3f46"} className="text-[10px] font-bold font-mono pointer-events-none uppercase tracking-widest">{c.name}</text>}
@@ -97,21 +112,42 @@ const Canvas: React.FC<CanvasProps> = ({
           const p1 = allPins.find(p => p.id === t.fromPinId);
           const p2 = allPins.find(p => p.id === t.toPinId);
           if(!p1 || !p2) return null;
+          
+          const fromJunc = components.find(c => c.id === p1.componentId && c.footprintId === 'JUNCTION');
+          const toJunc = components.find(c => c.id === p2.componentId && c.footprintId === 'JUNCTION');
+          
           const isS = selectedIds.has(t.id);
+          const isJSelected = (fromJunc && selectedIds.has(fromJunc.id)) || (toJunc && selectedIds.has(toJunc.id));
+          const showHandles = isS || isJSelected;
+
           const path = generateBezierPath(p1.globalPos!, p2.globalPos!, t);
           return (
-            <g key={t.id} onDoubleClick={(e) => { e.stopPropagation(); onTraceDoubleClick(t.id); }}>
-              <path d={path} stroke={isS ? t.color : t.color + '80'} strokeWidth={isS ? t.width + 4 : t.width} fill="none" strokeLinecap="round" />
-              {isS && (
-                <g>
+            <g key={t.id} onDoubleClick={(e) => { e.stopPropagation(); onTraceDoubleClick(t.id); }} className="cursor-pointer">
+              {/* Hit area path */}
+              <path d={path} stroke="transparent" strokeWidth={t.width + 12} fill="none" pointerEvents="stroke" />
+              {/* Visible trace */}
+              <path d={path} stroke={isS ? t.color : t.color + '80'} strokeWidth={isS ? t.width + 4 : t.width} fill="none" strokeLinecap="round" pointerEvents="none" />
+              {showHandles && (
+                <g pointerEvents="all">
                   {(() => {
                     const { cx1, cy1, cx2, cy2 } = getBezierControlPoints(p1.globalPos!, p2.globalPos!, t);
+                    const showC1 = isS || (fromJunc && selectedIds.has(fromJunc.id));
+                    const showC2 = isS || (toJunc && selectedIds.has(toJunc.id));
+
                     return (
                       <>
-                        <line x1={p1.globalPos!.x} y1={p1.globalPos!.y} x2={cx1} y2={cy1} stroke={t.color} strokeWidth="1" strokeDasharray="3 2" opacity="0.6" />
-                        <line x1={p2.globalPos!.x} y1={p2.globalPos!.y} x2={cx2} y2={cy2} stroke={t.color} strokeWidth="1" strokeDasharray="3 2" opacity="0.6" />
-                        <circle cx={cx1} cy={cy1} r="5" fill={t.color} stroke="#000" strokeWidth="1" className="cursor-move shadow-lg" />
-                        <circle cx={cx2} cy={cy2} r="5" fill={t.color} stroke="#000" strokeWidth="1" className="cursor-move shadow-lg" />
+                        {showC1 && (
+                          <>
+                            <line x1={p1.globalPos!.x} y1={p1.globalPos!.y} x2={cx1} y2={cy1} stroke={t.color} strokeWidth="1" strokeDasharray="3 2" opacity="0.6" />
+                            <circle cx={cx1} cy={cy1} r="5" fill={t.color} stroke="#000" strokeWidth="1" className="cursor-move shadow-lg" />
+                          </>
+                        )}
+                        {showC2 && (
+                          <>
+                            <line x1={p2.globalPos!.x} y1={p2.globalPos!.y} x2={cx2} y2={cy2} stroke={t.color} strokeWidth="1" strokeDasharray="3 2" opacity="0.6" />
+                            <circle cx={cx2} cy={cy2} r="5" fill={t.color} stroke="#000" strokeWidth="1" className="cursor-move shadow-lg" />
+                          </>
+                        )}
                       </>
                     );
                   })()}

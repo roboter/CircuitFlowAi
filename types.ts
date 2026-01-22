@@ -12,6 +12,7 @@ export interface Pin {
   type: 'io' | 'power' | 'ground';
   // Added globalPos to support coordinate calculations in design engine
   globalPos?: Vector2;
+  decoration?: 'plus' | 'notch';
 }
 
 export interface Footprint {
@@ -24,6 +25,8 @@ export interface Footprint {
   shape?: 'rect' | 'circle'; // New field for package style
 }
 
+export type JunctionType = 'smooth' | 'independent' | 'linear';
+
 export interface PCBComponent {
   id: string;
   footprintId: string;
@@ -32,6 +35,7 @@ export interface PCBComponent {
   rotation: number; // in degrees
   value?: string; // e.g., "10k", "100uF"
   locked?: boolean; // New field to prevent movement
+  junctionType?: JunctionType; // New field for junction behavior
 }
 
 export interface Trace {

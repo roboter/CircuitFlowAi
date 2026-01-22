@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { PCBComponent, Trace, Vector2 } from './types';
 import { FOOTPRINTS, SNAP_SIZE, getFootprint } from './constants';
@@ -79,47 +78,6 @@ const App: React.FC = () => {
     return { x: worldPt.x, y: worldPt.y };
   }, []);
 
-  const runDRC = useCallback(() => {
-    setIsDrcRunning(true);
-    const invalid = new Set<string>(); 
-    const markers: Vector2[] = [];
-    const markedPairs = new Set<string>(); 
-    const clearance = SNAP_SIZE * 0.45;
-    
-    const traceData = traces.map(t => {
-      const p1 = allPins.find(p => p.id === t.fromPinId), p2 = allPins.find(p => p.id === t.toPinId);
-      if (!p1 || !p2) return null;
-      return { id: t.id, from: t.fromPinId, to: t.toPinId, pts: Array.from({ length: 15 }, (_, i) => getPointOnBezier(i / 14, p1.globalPos!, p2.globalPos!, t)) };
-    }).filter(d => d !== null);
-
-    for (let i = 0; i < traceData.length; i++) {
-      for (let j = i + 1; j < traceData.length; j++) {
-        const a = traceData[i]!; const b = traceData[j]!;
-        if (a.from === b.from || a.from === b.to || a.to === b.from || a.to === b.to) continue;
-        const pairKey = [a.id, b.id].sort().join('-');
-        if (markedPairs.has(pairKey)) continue;
-        for (const pa of a.pts) {
-          for (const pb of b.pts) {
-            if (checkCollision(pa, pb, clearance)) {
-              invalid.add(a.id); 
-              invalid.add(b.id);
-              markers.push({ x: (pa.x + pb.x)/2, y: (pa.y + pb.y)/2 });
-              markedPairs.add(pairKey);
-              break;
-            }
-          }
-          if (markedPairs.has(pairKey)) break;
-        }
-      }
-    }
-    setInvalidTraceIds(invalid); 
-    setViolationMarkers(markers);
-    setLastCheckResult(invalid.size > 0 ? 'fail' : (traces.length > 0 ? 'pass' : 'none'));
-    setTimeout(() => setIsDrcRunning(false), 200);
-  }, [traces, allPins]);
-
-  useEffect(() => { const t = setTimeout(runDRC, 800); return () => clearTimeout(t); }, [traces, components, runDRC]);
-
   const centerView = useCallback(() => {
     const svg = boardRef.current; if (!svg) return;
     const rect = svg.getBoundingClientRect();
@@ -136,10 +94,104 @@ const App: React.FC = () => {
     setViewport({ x: rect.width / 2 - wCX * scale, y: rect.height / 2 - wCY * scale, scale });
   }, [components, traces]);
 
+  const runDRC = useCallback(() => {
+    setIsDrcRunning(true);
+    const invalid = new Set<string>(); 
+    const markers: Vector2[] = [];
+    const markedPairs = new Set<string>(); 
+    const SAFETY_GAP = 6.0; 
+    const PIN_PAD_RADIUS = 8.0; 
+    
+    const traceData = traces.map(t => {
+      const p1 = allPins.find(p => p.id === t.fromPinId), p2 = allPins.find(p => p.id === t.toPinId);
+      if (!p1 || !p2) return null;
+      return { 
+        id: t.id, 
+        from: t.fromPinId, 
+        to: t.toPinId, 
+        width: t.width,
+        pts: Array.from({ length: 20 }, (_, i) => getPointOnBezier(i / 19, p1.globalPos!, p2.globalPos!, t)) 
+      };
+    }).filter(d => d !== null);
+
+    for (let i = 0; i < traceData.length; i++) {
+      for (let j = i + 1; j < traceData.length; j++) {
+        const a = traceData[i]!; const b = traceData[j]!;
+        if (a.from === b.from || a.from === b.to || a.to === b.from || a.to === b.to) continue;
+        const pairKey = [a.id, b.id].sort().join('-');
+        if (markedPairs.has(pairKey)) continue;
+        const threshold = (a.width / 2) + (b.width / 2) + SAFETY_GAP;
+        for (const pa of a.pts) {
+          for (const pb of b.pts) {
+            if (checkCollision(pa, pb, threshold)) {
+              invalid.add(a.id); 
+              invalid.add(b.id);
+              markers.push({ x: (pa.x + pb.x)/2, y: (pa.y + pb.y)/2 });
+              markedPairs.add(pairKey);
+              break;
+            }
+          }
+          if (markedPairs.has(pairKey)) break;
+        }
+      }
+    }
+
+    traceData.forEach(t => {
+      const unrelatedPins = allPins.filter(p => p.id !== t.from && p.id !== t.to);
+      const threshold = (t.width / 2) + PIN_PAD_RADIUS + SAFETY_GAP;
+      let pinMarked = false;
+      unrelatedPins.forEach(p => {
+        if (pinMarked) return;
+        for (const pt of t.pts) {
+          if (checkCollision(pt, p.globalPos!, threshold)) {
+            invalid.add(t.id);
+            markers.push({ x: (pt.x + p.globalPos!.x)/2, y: (pt.y + p.globalPos!.y)/2 });
+            pinMarked = true;
+            break;
+          }
+        }
+      });
+    });
+
+    setInvalidTraceIds(invalid); 
+    setViolationMarkers(markers);
+    setLastCheckResult(invalid.size > 0 ? 'fail' : (traces.length > 0 ? 'pass' : 'none'));
+    setTimeout(() => setIsDrcRunning(false), 200);
+  }, [traces, allPins]);
+
+  useEffect(() => { const t = setTimeout(runDRC, 800); return () => clearTimeout(t); }, [traces, components, runDRC]);
+
+  const loadExample = useCallback(() => {
+    saveToHistory();
+    const exampleComponents: PCBComponent[] = [
+      { id: 'ex_nano', footprintId: 'arduino_nano', name: 'MCU1', position: { x: 400, y: 100 }, rotation: 0 },
+      { id: 'ex_led', footprintId: 'led', name: 'L1', position: { x: 800, y: 150 }, rotation: 0 },
+      { id: 'ex_res', footprintId: 'resistor', name: 'R1', position: { x: 750, y: 300 }, rotation: 90 },
+      { id: 'ex_dip', footprintId: 'dip_8', name: 'U1', position: { x: 400, y: 600 }, rotation: 0 },
+      { id: 'ex_cap', footprintId: 'capacitor_electrolytic', name: 'C1', position: { x: 1000, y: 500 }, rotation: 0 },
+      { id: 'ex_head', footprintId: 'header_4', name: 'H1', position: { x: 100, y: 200 }, rotation: 0, locked: true },
+      { id: 'ex_diode', footprintId: 'diode', name: 'D1', position: { x: 100, y: 500 }, rotation: 180 }
+    ];
+
+    const exampleTraces: Trace[] = [
+      { id: 'tr_ex_1', fromPinId: 'ex_nano_p1', toPinId: 'ex_led_A', width: 8, color: '#3b82f6' },
+      { id: 'tr_ex_2', fromPinId: 'ex_nano_p12', toPinId: 'ex_head_p1', width: 14, color: '#ef4444' },
+      { id: 'tr_ex_3', fromPinId: 'ex_dip_p1', toPinId: 'ex_res_1', width: 6, color: '#10b981' },
+      { id: 'tr_ex_4', fromPinId: 'ex_nano_p14', toPinId: 'ex_cap_2', width: 10, color: '#f59e0b', c1Offset: { x: 100, y: 50 }, c2Offset: { x: -50, y: 100 } },
+      { id: 'tr_err_1', fromPinId: 'ex_dip_p2', toPinId: 'ex_led_K', width: 8, color: '#10b981' },
+      { id: 'tr_err_2', fromPinId: 'ex_diode_A', toPinId: 'ex_nano_p15', width: 8, color: '#3b82f6' }
+    ];
+
+    setComponents(exampleComponents);
+    setTraces(exampleTraces);
+    setSelectedIds(new Set());
+    setTimeout(() => centerView(), 100);
+  }, [saveToHistory, centerView]);
+
   const createJunctionAt = (world: Vector2): string => {
     const jId = `comp_junc_${Date.now()}`;
-    const newJ = { id: jId, footprintId: 'JUNCTION', name: 'J' + (components.length + 1), position: { x: world.x - 12.7, y: world.y - 12.7 }, rotation: 0 };
-    saveToHistory(); setComponents(prev => [...prev, newJ]);
+    const newJ: PCBComponent = { id: jId, footprintId: 'JUNCTION', name: 'J' + (components.length + 1), position: { x: world.x - 12.7, y: world.y - 12.7 }, rotation: 0, junctionType: 'smooth' };
+    setComponents(prev => [...prev, newJ]);
     return `${jId}_p1`;
   };
 
@@ -166,7 +218,15 @@ const App: React.FC = () => {
     }
     if (tool === 'pan' || e.button === 1) { dragRef.current = { type: 'pan', startWorld: { x: e.clientX, y: e.clientY } }; return; }
 
-    for (const traceId of selectedIds) {
+    const activeTraceIds = new Set(selectedIds);
+    selectedIds.forEach(sid => {
+      const comp = components.find(c => c.id === sid);
+      if (comp?.footprintId === 'JUNCTION') {
+        traces.forEach(t => { if (t.fromPinId.startsWith(sid) || t.toPinId.startsWith(sid)) activeTraceIds.add(t.id); });
+      }
+    });
+
+    for (const traceId of activeTraceIds) {
       const t = traces.find(tr => tr.id === traceId);
       if (t) {
         const p1 = allPins.find(p => p.id === t.fromPinId), p2 = allPins.find(p => p.id === t.toPinId);
@@ -216,7 +276,6 @@ const App: React.FC = () => {
 
       if (hitComps.includes(nextId)) {
         const comp = components.find(c => c.id === nextId);
-        // If the clicked component is locked, only allow selection, not movement
         if (comp && comp.locked) {
            dragRef.current = null;
            return;
@@ -268,15 +327,69 @@ const App: React.FC = () => {
         if (!p1 || !p2) return t;
         const base = drag.handleIdx === 1 ? p1.globalPos! : p2.globalPos!;
         const offset = { x: world.x - base.x, y: world.y - base.y };
-        return drag.handleIdx === 1 ? { ...t, c1Offset: offset } : { ...t, c2Offset: offset };
+        const updated = drag.handleIdx === 1 ? { ...t, c1Offset: offset } : { ...t, c2Offset: offset };
+        
+        const junctionPinId = drag.handleIdx === 1 ? t.fromPinId : t.toPinId;
+        const junctionComp = components.find(c => junctionPinId.startsWith(c.id) && c.footprintId === 'JUNCTION');
+        
+        if (junctionComp && junctionComp.junctionType !== 'independent') {
+          const neighbors = prev.filter(tr => tr.id !== t.id && (tr.fromPinId === junctionPinId || tr.toPinId === junctionPinId));
+          if (neighbors.length === 1) {
+            const n = neighbors[0];
+            const isNFrom = n.fromPinId === junctionPinId;
+            const currentNOffset = isNFrom ? (n.c1Offset || {x:0, y:0}) : (n.c2Offset || {x:0, y:0});
+            
+            let finalNOffset;
+            if (junctionComp.junctionType === 'smooth') {
+              // Mirrored
+              finalNOffset = { x: -offset.x, y: -offset.y };
+            } else {
+              // Linear: flip direction, keep length
+              const offsetLen = Math.hypot(offset.x, offset.y);
+              if (offsetLen > 0.1) {
+                const nLen = Math.hypot(currentNOffset.x, currentNOffset.y);
+                finalNOffset = { 
+                  x: (-offset.x / offsetLen) * nLen, 
+                  y: (-offset.y / offsetLen) * nLen 
+                };
+              } else {
+                finalNOffset = currentNOffset;
+              }
+            }
+            
+            setTimeout(() => {
+              setTraces(curr => curr.map(tr => tr.id === n.id ? (isNFrom ? { ...tr, c1Offset: finalNOffset } : { ...tr, c2Offset: finalNOffset }) : tr));
+            }, 0);
+          }
+        }
+        return updated;
       }));
     } else if (drag.type === 'potential_split') {
       if (Math.hypot(world.x - drag.startWorld.x, world.y - drag.startWorld.y) > 10) {
         const t = traces.find(tr => tr.id === drag.id);
         if (t) {
+          saveToHistory();
           const jid = createJunctionAt(world);
-          const s1 = { id: `tr_${Date.now()}_1`, fromPinId: t.fromPinId, toPinId: jid, width: t.width, color: t.color };
-          const s2 = { id: `tr_${Date.now()}_2`, fromPinId: jid, toPinId: t.toPinId, width: t.width, color: t.color };
+          const p1 = allPins.find(p => p.id === t.fromPinId);
+          const p2 = allPins.find(p => p.id === t.toPinId);
+          
+          let offsetIn = { x: 0, y: 0 };
+          let offsetOut = { x: 0, y: 0 };
+          
+          if (p1 && p2) {
+             const dir = { x: p2.globalPos!.x - p1.globalPos!.x, y: p2.globalPos!.y - p1.globalPos!.y };
+             const len = Math.hypot(dir.x, dir.y);
+             if (len > 0.1) {
+                const unit = { x: dir.x / len, y: dir.y / len };
+                const tension = 30; 
+                offsetIn = { x: -unit.x * tension, y: -unit.y * tension };
+                offsetOut = { x: unit.x * tension, y: unit.y * tension };
+             }
+          }
+
+          const s1 = { id: `tr_${Date.now()}_1`, fromPinId: t.fromPinId, toPinId: jid, width: t.width, color: t.color, c2Offset: offsetIn };
+          const s2 = { id: `tr_${Date.now()}_2`, fromPinId: jid, toPinId: t.toPinId, width: t.width, color: t.color, c1Offset: offsetOut };
+          
           setTraces(prev => [...prev.filter(tr => tr.id !== t.id), s1, s2]);
           const newCId = jid.split('_')[0]; setSelectedIds(new Set([newCId]));
           dragRef.current = { type: 'move', id: newCId, startWorld: world, offset: {x:0, y:0}, hasMoved: true, initialComp: components.find(c => c.id === newCId) };
@@ -285,7 +398,6 @@ const App: React.FC = () => {
     } else if (drag.type === 'move') {
       const delta = { x: world.x - drag.startWorld.x, y: world.y - drag.startWorld.y };
       if (drag.groupInitialPositions) {
-        // Find if the anchor drag component is locked
         const mi = drag.groupInitialPositions.get(drag.id!)!; 
         const isJ = components.find(c => c.id === drag.id)?.footprintId === 'JUNCTION';
         const snp = { x: snap(mi.x + delta.x, isJ), y: snap(mi.y + delta.y, isJ) };
@@ -302,19 +414,6 @@ const App: React.FC = () => {
           setComponents(prev => prev.map(c => c.id === drag.id ? { ...c, position: getCompPosForPinTarget(comp.footprintId, target, comp.rotation) } : c));
         }
       }
-      setTraces(prev => prev.map(t => {
-        const mcs = drag.groupInitialPositions ? Array.from(drag.groupInitialPositions.keys()) : [drag.id!];
-        const aps = allPins.filter(p => mcs.includes(p.componentId)).map(p => p.id);
-        const isF = aps.includes(t.fromPinId), isT = aps.includes(t.toPinId);
-        if (isF || isT) {
-          const node = isF ? t.fromPinId : t.toPinId; const cts = prev.filter(a => a.fromPinId === node || a.toPinId === node);
-          if (cts.length === 2) {
-            const curH = isF ? (t.c1Offset || {x:0,y:0}) : (t.c2Offset || {x:0,y:0}), mir = { x: -curH.x, y: -curH.y };
-            const adj = cts.find(a => a.id !== t.id); if (adj) { if (adj.fromPinId === node) adj.c1Offset = mir; else adj.c2Offset = mir; }
-          }
-        }
-        return t;
-      }));
     } else if (drag.type === 'route') {
       const sp = allPins.find(p => p.id === drag.id);
       if (sp) setRoutingPreview({ path: generateBezierPath(sp.globalPos!, (hp ? hp.globalPos! : world)) });
@@ -356,7 +455,6 @@ const App: React.FC = () => {
         setComponents(prev => prev.filter(c => c.id !== isJunc.id)); setSelectedIds(new Set()); return;
       }
     }
-    // Only allow deleting non-locked components unless explicitly specified otherwise, but for now we follow "cannot move" primarily.
     setComponents(prev => prev.filter(c => !selectedIds.has(c.id)));
     setTraces(prev => prev.filter(t => !selectedIds.has(t.id) && !selectedIds.has(allPins.find(p => p.id === t.fromPinId)?.componentId || '') && !selectedIds.has(allPins.find(p => p.id === t.toPinId)?.componentId || '')));
     setSelectedIds(new Set());
@@ -365,6 +463,46 @@ const App: React.FC = () => {
   const onUpdateTrace = (id: string, updates: Partial<Trace>) => {
     saveToHistory();
     setTraces(prev => prev.map(t => (t.id === id || selectedIds.has(t.id)) ? { ...t, ...updates } : t));
+  };
+
+  const onUpdateComponent = (id: string, updates: Partial<PCBComponent>) => {
+    saveToHistory();
+    setComponents(prev => prev.map(c => {
+      if (c.id !== id) return c;
+      const nextC = { ...c, ...updates };
+      // If junction mode changed, realign connected traces immediately
+      if (c.footprintId === 'JUNCTION' && (updates.junctionType === 'smooth' || updates.junctionType === 'linear')) {
+        const pinId = `${id}_p1`;
+        const connected = traces.filter(t => t.fromPinId === pinId || t.toPinId === pinId);
+        if (connected.length === 2) {
+          const t1 = connected[0], t2 = connected[1];
+          const isT1From = t1.fromPinId === pinId;
+          const isT2From = t2.fromPinId === pinId;
+          const currentOffset = isT1From ? (t1.c1Offset || {x:0, y:0}) : (t1.c2Offset || {x:0, y:0});
+          const nOffset = isT2From ? (t2.c1Offset || {x:0, y:0}) : (t2.c2Offset || {x:0, y:0});
+          
+          let alignedNOffset;
+          if (updates.junctionType === 'smooth') {
+            alignedNOffset = { x: -currentOffset.x, y: -currentOffset.y };
+          } else {
+            // Linear alignment
+            const offsetLen = Math.hypot(currentOffset.x, currentOffset.y);
+            if (offsetLen > 0.1) {
+              const nLen = Math.hypot(nOffset.x, nOffset.y);
+              alignedNOffset = { x: (-currentOffset.x / offsetLen) * nLen, y: (-currentOffset.y / offsetLen) * nLen };
+            } else {
+              alignedNOffset = nOffset;
+            }
+          }
+          
+          setTraces(curr => curr.map(tr => {
+            if (tr.id === t2.id) return isT2From ? { ...tr, c1Offset: alignedNOffset } : { ...tr, c2Offset: alignedNOffset };
+            return tr;
+          }));
+        }
+      }
+      return nextC;
+    }));
   };
 
   const exportSVG = () => {
@@ -392,6 +530,7 @@ const App: React.FC = () => {
           const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `project_${Date.now()}.json`; a.click();
         }}
         loadProject={() => fileInputRef.current?.click()}
+        loadExample={loadExample}
       />
       <div className="flex-1 relative overflow-hidden bg-[#050C07]">
         <Toolbar 
@@ -433,7 +572,7 @@ const App: React.FC = () => {
       <Inspector 
         selectedComponents={selectedItems.components} selectedTraces={selectedItems.traces}
         hoveredCompId={hoveredCompId} onMouseEnterItem={setHoveredCompId}
-        onUpdateComponent={(id, u) => { saveToHistory(); setComponents(prev => prev.map(c => c.id === id ? {...c, ...u} : c)); }}
+        onUpdateComponent={onUpdateComponent}
         onUpdateTrace={onUpdateTrace}
         onRemoveItem={(id) => { saveToHistory(); setSelectedIds(new Set([id])); deleteSelected(); }}
         onClearSelection={() => setSelectedIds(new Set())}

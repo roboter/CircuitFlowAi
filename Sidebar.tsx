@@ -1,7 +1,30 @@
 
 import React from 'react';
 import { FOOTPRINTS } from './constants';
-import { CircuitBoard, Plus, AlertTriangle, CheckCircle2, ShieldCheck, FileCode, Download, Save, Upload, RefreshCw } from 'lucide-react';
+import { 
+  CircuitBoard, 
+  Plus, 
+  AlertTriangle, 
+  CheckCircle2, 
+  ShieldCheck, 
+  FileCode, 
+  Download, 
+  Save, 
+  Upload, 
+  RefreshCw, 
+  Sparkles,
+  Cpu,
+  Zap,
+  CircleDot,
+  Box,
+  Lightbulb,
+  ArrowRightLeft,
+  Wind,
+  Triangle,
+  Disc,
+  Grid,
+  Rows
+} from 'lucide-react';
 
 interface SidebarProps {
   pendingFootprintId: string | null;
@@ -14,31 +37,58 @@ interface SidebarProps {
   exportToGRBL: () => void;
   saveProject: () => void;
   loadProject: () => void;
+  loadExample: () => void;
 }
+
+const ICON_MAP: Record<string, any> = {
+  'arduino_nano': Cpu,
+  'resistor': Zap,
+  'capacitor_electrolytic': CircleDot,
+  'capacitor_ceramic': Box,
+  'led': Lightbulb,
+  'diode': ArrowRightLeft,
+  'inductor': Wind,
+  'transistor': Triangle,
+  'pin': Disc,
+  'dip': Grid,
+  'header': Rows
+};
 
 const Sidebar: React.FC<SidebarProps> = ({
   pendingFootprintId, onLibraryClick, lastCheckResult, invalidTraceCount,
-  isDrcRunning, runDRC, exportToSVG, exportToGRBL, saveProject, loadProject
+  isDrcRunning, runDRC, exportToSVG, exportToGRBL, saveProject, loadProject, loadExample
 }) => {
   return (
-    <div className="w-72 bg-[#0A1A0F] border-r border-[#1A4A23] flex flex-col p-4 gap-6 z-10">
+    <div className="w-72 bg-[#0A1A0F] border-r border-[#1A4A23] flex flex-col p-4 gap-6 z-10 shadow-xl">
       <div className="flex items-center gap-3 px-2">
         <CircuitBoard className="text-emerald-500" size={24} />
         <h1 className="font-bold text-xl tracking-tight text-white italic">CircuitFlow</h1>
       </div>
       
-      <div className="flex flex-col gap-3">
-        <label className="text-[10px] font-black text-emerald-900 uppercase tracking-widest px-2">LIBRARY</label>
-        <div className="grid grid-cols-1 gap-2">
-          {FOOTPRINTS.filter(f => f.id !== 'JUNCTION').map(f => (
-            <button 
-              key={f.id} 
-              onClick={() => onLibraryClick(f.id)} 
-              className={`flex items-center gap-3 p-3 rounded-xl border ${pendingFootprintId === f.id ? 'bg-emerald-500 text-black' : 'bg-zinc-950 border-zinc-800 hover:bg-[#152B1B]'} transition-all text-xs font-bold`}
-            >
-              <Plus size={14} />{f.name}
-            </button>
-          ))}
+      <div className="flex flex-col gap-3 overflow-hidden">
+        <label className="text-[10px] font-black text-emerald-900 uppercase tracking-widest px-2">COMPONENTS</label>
+        <div className="grid grid-cols-2 gap-2 overflow-y-auto pr-1 scrollbar-thin max-h-[40vh]">
+          {FOOTPRINTS.filter(f => f.id !== 'JUNCTION').map(f => {
+            const Icon = ICON_MAP[f.id] || Plus;
+            const isPending = pendingFootprintId === f.id;
+            return (
+              <button 
+                key={f.id} 
+                onClick={() => onLibraryClick(f.id)} 
+                title={f.name}
+                className={`flex flex-col items-center justify-center gap-2 p-3 rounded-xl border transition-all ${
+                  isPending 
+                    ? 'bg-emerald-500 border-emerald-400 text-black shadow-[0_0_15px_rgba(16,185,129,0.3)] scale-[0.98]' 
+                    : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-emerald-900 hover:bg-[#152B1B] hover:text-emerald-400'
+                }`}
+              >
+                <Icon size={20} className={isPending ? "text-black" : "opacity-60"} />
+                <span className="text-[9px] font-black uppercase tracking-tighter truncate w-full text-center">
+                  {f.name.split(' ')[0]}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -46,22 +96,52 @@ const Sidebar: React.FC<SidebarProps> = ({
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between px-2 mb-1">
             <span className="text-[10px] font-black text-emerald-900 uppercase tracking-widest">DRC STATUS</span>
-            <button onClick={runDRC} className="hover:bg-zinc-800 p-1.5 rounded-lg text-zinc-500 hover:text-emerald-500"><RefreshCw size={14} className={isDrcRunning ? "animate-spin" : ""} /></button>
+            <button 
+              onClick={(e) => { e.stopPropagation(); runDRC(); }} 
+              className="hover:bg-zinc-800 p-1.5 rounded-lg text-zinc-500 hover:text-emerald-500 transition-colors"
+            >
+              <RefreshCw size={14} className={isDrcRunning ? "animate-spin" : ""} />
+            </button>
           </div>
-          <div className={`flex items-center gap-3 p-4 rounded-xl border transition-all ${lastCheckResult === 'fail' ? 'bg-red-500/10 border-red-500/50 text-red-400' : lastCheckResult === 'pass' ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-400' : 'bg-zinc-950 border-zinc-800 text-zinc-500'}`}>
-            <div className="shrink-0">{lastCheckResult === 'fail' ? <AlertTriangle size={24} /> : lastCheckResult === 'pass' ? <CheckCircle2 size={24} /> : <ShieldCheck size={24} />}</div>
-            <span className="text-xs font-black tracking-widest uppercase">{isDrcRunning ? 'Analyzing...' : lastCheckResult === 'fail' ? `${invalidTraceCount} Faults` : lastCheckResult === 'pass' ? 'Clear' : 'Idle'}</span>
+          <div className={`flex items-center gap-3 p-4 rounded-xl border transition-all ${
+            lastCheckResult === 'fail' 
+              ? 'bg-red-500/10 border-red-500/50 text-red-400' 
+              : lastCheckResult === 'pass' 
+                ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-400' 
+                : 'bg-zinc-950 border-zinc-800 text-zinc-500'
+          }`}>
+            <div className="shrink-0">
+              {lastCheckResult === 'fail' ? <AlertTriangle size={24} /> : lastCheckResult === 'pass' ? <CheckCircle2 size={24} /> : <ShieldCheck size={24} />}
+            </div>
+            <span className="text-xs font-black tracking-widest uppercase">
+              {isDrcRunning ? 'Analyzing...' : lastCheckResult === 'fail' ? `${invalidTraceCount} Faults` : lastCheckResult === 'pass' ? 'Clear' : 'Idle'}
+            </span>
           </div>
         </div>
         
         <div className="grid grid-cols-2 gap-2">
-          <button onClick={exportToSVG} className="flex flex-col items-center justify-center gap-1 p-3 bg-zinc-900 hover:bg-emerald-950 text-emerald-400 rounded-xl border border-emerald-900/50 transition-all font-black text-[10px] uppercase"><FileCode size={18} /> SVG</button>
-          <button onClick={exportToGRBL} className="flex flex-col items-center justify-center gap-1 p-3 bg-zinc-900 hover:bg-emerald-950 text-emerald-400 rounded-xl border border-emerald-900/50 transition-all font-black text-[10px] uppercase"><Download size={18} /> GRBL</button>
+          <button onClick={exportToSVG} className="flex flex-col items-center justify-center gap-1 p-3 bg-zinc-900 hover:bg-emerald-950 text-emerald-400 rounded-xl border border-emerald-900/50 transition-all font-black text-[10px] uppercase group">
+            <FileCode size={18} className="group-hover:scale-110 transition-transform" /> 
+            SVG
+          </button>
+          <button onClick={exportToGRBL} className="flex flex-col items-center justify-center gap-1 p-3 bg-zinc-900 hover:bg-emerald-950 text-emerald-400 rounded-xl border border-emerald-900/50 transition-all font-black text-[10px] uppercase group">
+            <Download size={18} className="group-hover:scale-110 transition-transform" /> 
+            GRBL
+          </button>
         </div>
         <div className="grid grid-cols-2 gap-2">
-          <button onClick={saveProject} className="flex flex-col items-center justify-center gap-1 p-3 bg-emerald-500 hover:bg-emerald-400 text-black rounded-xl transition-all font-black text-[10px] uppercase"><Save size={18} /> Save</button>
-          <button onClick={loadProject} className="flex flex-col items-center justify-center gap-1 p-3 bg-zinc-100 hover:bg-white text-black rounded-xl transition-all font-black text-[10px] uppercase"><Upload size={18} /> Load</button>
+          <button onClick={saveProject} className="flex flex-col items-center justify-center gap-1 p-3 bg-emerald-500 hover:bg-emerald-400 text-black rounded-xl transition-all font-black text-[10px] uppercase shadow-lg shadow-emerald-900/10">
+            <Save size={18} /> 
+            Save
+          </button>
+          <button onClick={loadProject} className="flex flex-col items-center justify-center gap-1 p-3 bg-zinc-100 hover:bg-white text-black rounded-xl transition-all font-black text-[10px] uppercase">
+            <Upload size={18} /> 
+            Load
+          </button>
         </div>
+        <button onClick={loadExample} className="w-full flex items-center justify-center gap-2 p-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl transition-all font-black text-[10px] uppercase shadow-lg shadow-emerald-900/20">
+          <Sparkles size={16} /> Load Example Project
+        </button>
       </div>
     </div>
   );

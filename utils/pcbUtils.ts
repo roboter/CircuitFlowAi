@@ -106,9 +106,16 @@ export const findConnectedTraces = (startTraceId: string, allTraces: Trace[], al
 
     const pins = [trace.fromPinId, trace.toPinId];
     for (const pinId of pins) {
-      const compId = pinId.split('_')[0];
+      // Correct component ID extraction from pin ID (everything before the last '_')
+      const lastUnderscore = pinId.lastIndexOf('_');
+      const compId = lastUnderscore !== -1 ? pinId.substring(0, lastUnderscore) : pinId;
+
       if (junctionCompIds.has(compId)) {
-        const neighbors = allTraces.filter(t => (t.fromPinId === pinId || t.toPinId === pinId) && t.id !== tid);
+        // Any trace connected to ANY pin of this junction component is connected
+        // Though junctions usually have 1 pin, this is safer.
+        const neighbors = allTraces.filter(t => t.id !== tid && (
+          t.fromPinId.startsWith(compId + '_') || t.toPinId.startsWith(compId + '_')
+        ));
         for (const n of neighbors) {
           if (!result.has(n.id)) queue.push(n.id);
         }

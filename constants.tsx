@@ -1,3 +1,4 @@
+
 import { Footprint, Pin } from './types';
 
 export const GRID_SIZE = 254.0; // Scaled up 10x
@@ -129,16 +130,28 @@ export const FOOTPRINTS: Footprint[] = [
     "shape": 'rect'
   },
   {
-    "id": "capacitor",
+    "id": "capacitor_electrolytic",
     "name": "Electrolytic Cap",
     "width": 50.8,
     "height": 50.8,
     "pins": [
-      {"id": "1", "componentId": "", "name": "+", "localPos": {"x": 12.7, "y": 25.4}, "type": "io"},
+      {"id": "1", "componentId": "", "name": "+", "localPos": {"x": 12.7, "y": 25.4}, "type": "io", "decoration": "plus"},
       {"id": "2", "componentId": "", "name": "-", "localPos": {"x": 38.1, "y": 25.4}, "type": "io"}
     ],
     "valueType": "capacitance",
     "shape": 'circle'
+  },
+  {
+    "id": "capacitor_ceramic",
+    "name": "Ceramic Cap",
+    "width": 50.8,
+    "height": 25.4,
+    "pins": [
+      {"id": "1", "componentId": "", "name": "1", "localPos": {"x": 12.7, "y": 12.7}, "type": "io"},
+      {"id": "2", "componentId": "", "name": "2", "localPos": {"x": 38.1, "y": 12.7}, "type": "io"}
+    ],
+    "valueType": "capacitance",
+    "shape": 'rect'
   },
   {
     "id": "led",
@@ -146,8 +159,8 @@ export const FOOTPRINTS: Footprint[] = [
     "width": 50.8,
     "height": 50.8,
     "pins": [
-      {"id": "A", "componentId": "", "name": "A", "localPos": {"x": 12.7, "y": 25.4}, "type": "io"},
-      {"id": "K", "componentId": "", "name": "K", "localPos": {"x": 38.1, "y": 25.4}, "type": "io"}
+      {"id": "A", "componentId": "", "name": "A", "localPos": {"x": 12.7, "y": 25.4}, "type": "io", "decoration": "plus"},
+      {"id": "K", "componentId": "", "name": "K", "localPos": {"x": 38.1, "y": 25.4}, "type": "io", "decoration": "notch"}
     ],
     "shape": 'circle'
   },
