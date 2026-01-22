@@ -75,9 +75,15 @@ const Inspector: React.FC<InspectorProps> = ({
           {(() => {
             const foot = getFootprint(selectedComponents[0].footprintId);
             if (!foot || !foot.valueType) return null;
+            
+            let label = "Value";
+            if (foot.valueType === 'resistance') label = "Resistance";
+            else if (foot.valueType === 'capacitance') label = "Capacitance";
+            else if (foot.valueType === 'inductance') label = "Inductance";
+
             return (
               <div className="flex flex-col gap-2">
-                <label className="text-[10px] text-emerald-900 font-black uppercase">{foot.valueType === 'resistance' ? 'Resistance' : 'Capacitance'}</label>
+                <label className="text-[10px] text-emerald-900 font-black uppercase">{label}</label>
                 <div className="relative"><input type="text" value={selectedComponents[0].value || ''} onChange={(e) => onUpdateComponent(selectedComponents[0].id, { value: e.target.value })} className="w-full bg-[#050C07] border border-zinc-800 p-3 rounded-xl text-sm pl-11" /><Zap size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-500/40" /></div>
               </div>
             );

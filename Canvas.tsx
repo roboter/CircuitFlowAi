@@ -20,7 +20,9 @@ interface CanvasProps {
   pendingFootprintId: string | null;
   previewPos: Vector2 | null;
   onPointerDown: (e: React.PointerEvent) => void;
+  // Fix: PointerMoveEvent is not a valid React type, use generic PointerEvent instead
   onPointerMove: (e: React.PointerEvent) => void;
+  // Fix: PointerUpEvent is not a valid React type, use generic PointerEvent instead
   onPointerUp: (e: React.PointerEvent) => void;
   onWheel: (e: React.WheelEvent) => void;
   getFootprint: (id: string) => any;
@@ -35,6 +37,7 @@ const Canvas: React.FC<CanvasProps> = ({
   getFootprint, getCompPosForPinTarget
 }) => {
   const hoveredPin = allPins.find(p => p.id === hoveredPinId);
+  const hoveredPinComp = hoveredPin ? components.find(c => c.id === hoveredPin.componentId) : null;
 
   return (
     <svg 
@@ -63,15 +66,27 @@ const Canvas: React.FC<CanvasProps> = ({
           // Junctions are only visible if interacted with or selected
           if (isJ && !isS && !traces.some(t => selectedIds.has(t.id) && (t.fromPinId.startsWith(c.id) || t.toPinId.startsWith(c.id))) && !isH) return null;
 
+          const cx = foot.width / 2;
+          const cy = foot.height / 2;
+
           return (
-            <g key={c.id} transform={`translate(${c.position.x}, ${c.position.y}) rotate(${c.rotation}, ${foot.width/2}, ${foot.height/2})`}>
+            <g key={c.id} transform={`translate(${c.position.x}, ${c.position.y}) rotate(${c.rotation}, ${cx}, ${cy})`}>
               {!isJ && (
-                <rect 
-                  width={foot.width} height={foot.height} 
-                  fill={isS ? '#10b98110' : 'transparent'} 
-                  stroke={isS || isH ? '#10B981' : '#27272a'} 
-                  strokeWidth={isS || isH ? "3" : "1.5"} rx="4" 
-                />
+                foot.shape === 'circle' ? (
+                  <circle 
+                    cx={cx} cy={cy} r={Math.max(foot.width, foot.height) / 2}
+                    fill={isS ? '#10b98110' : 'transparent'} 
+                    stroke={isS || isH ? '#10B981' : '#27272a'} 
+                    strokeWidth={isS || isH ? "3" : "1.5"}
+                  />
+                ) : (
+                  <rect 
+                    width={foot.width} height={foot.height} 
+                    fill={isS ? '#10b98110' : 'transparent'} 
+                    stroke={isS || isH ? '#10B981' : '#27272a'} 
+                    strokeWidth={isS || isH ? "3" : "1.5"} rx="4" 
+                  />
+                )
               )}
               {foot.pins.map(pin => (
                 <g key={pin.id} transform={`translate(${pin.localPos.x}, ${pin.localPos.y})`}>
@@ -79,7 +94,7 @@ const Canvas: React.FC<CanvasProps> = ({
                   <circle r="3.5" fill={pin.type === 'power' ? '#ef4444' : (pin.type === 'ground' ? '#3b82f6' : '#FCD34D')} />
                 </g>
               ))}
-              {!isJ && <text x={foot.width / 2} y={-10} textAnchor="middle" fill={isS || isH ? "#10B981" : "#3f3f46"} className="text-[10px] font-bold font-mono pointer-events-none uppercase">{c.name}</text>}
+              {!isJ && <text x={cx} y={-10} textAnchor="middle" fill={isS || isH ? "#10B981" : "#3f3f46"} className="text-[10px] font-bold font-mono pointer-events-none uppercase tracking-widest">{c.name}</text>}
             </g>
           );
         })}
@@ -95,10 +110,19 @@ const Canvas: React.FC<CanvasProps> = ({
             <g key={t.id}>
               <path d={path} stroke={isS ? '#FCD34D' : '#FCD34D80'} strokeWidth={isS ? t.width + 4 : t.width} fill="none" strokeLinecap="round" />
               {isS && (
-                <g className="pointer-events-none">
+                <g>
                   {(() => {
                     const { cx1, cy1, cx2, cy2 } = getBezierControlPoints(p1.globalPos!, p2.globalPos!, t);
-                    return <><circle cx={cx1} cy={cy1} r="6" fill="#FCD34D" /><circle cx={cx2} cy={cy2} r="6" fill="#FCD34D" /></>;
+                    return (
+                      <>
+                        {/* Tangent lines from pins to handles */}
+                        <line x1={p1.globalPos!.x} y1={p1.globalPos!.y} x2={cx1} y2={cy1} stroke="#FCD34D" strokeWidth="1" strokeDasharray="3 2" opacity="0.6" />
+                        <line x1={p2.globalPos!.x} y1={p2.globalPos!.y} x2={cx2} y2={cy2} stroke="#FCD34D" strokeWidth="1" strokeDasharray="3 2" opacity="0.6" />
+                        
+                        <circle cx={cx1} cy={cy1} r="8" fill="#FCD34D" stroke="#000" strokeWidth="1" className="cursor-move shadow-lg" />
+                        <circle cx={cx2} cy={cy2} r="8" fill="#FCD34D" stroke="#000" strokeWidth="1" className="cursor-move shadow-lg" />
+                      </>
+                    );
                   })()}
                 </g>
               )}
@@ -106,18 +130,23 @@ const Canvas: React.FC<CanvasProps> = ({
           );
         })}
 
-        {/* Snapping Feedback */}
+        {/* Hover Descriptions (Pin Tooltips) */}
         {hoveredPin && (
-          <circle 
-            cx={hoveredPin.globalPos!.x} 
-            cy={hoveredPin.globalPos!.y} 
-            r="18" 
-            fill="none" 
-            stroke="#FCD34D" 
-            strokeWidth="2" 
-            strokeDasharray="4 2" 
-            className="animate-spin-slow"
-          />
+          <g transform={`translate(${hoveredPin.globalPos!.x}, ${hoveredPin.globalPos!.y})`} className="pointer-events-none">
+             <circle 
+              r="18" 
+              fill="none" 
+              stroke="#FCD34D" 
+              strokeWidth="2" 
+              strokeDasharray="4 2" 
+              className="animate-spin-slow"
+            />
+            <g transform="translate(0, -22)">
+               <rect x="-45" y="-35" width="90" height="32" rx="6" fill="#0A1A0F" stroke="#10B981" strokeWidth="1.5" className="shadow-2xl" />
+               <text textAnchor="middle" y="-20" fill="#fff" className="text-[10px] font-black uppercase tracking-tighter mono">{hoveredPin.name}</text>
+               <text textAnchor="middle" y="-8" fill="#10B981" className="text-[8px] font-bold uppercase tracking-widest opacity-80">{hoveredPinComp?.name || 'NODE'}</text>
+            </g>
+          </g>
         )}
 
         {/* Previews & Markers */}

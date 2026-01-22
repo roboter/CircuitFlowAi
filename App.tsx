@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { PCBComponent, Trace, Vector2 } from './types';
 import { FOOTPRINTS, SNAP_SIZE, getFootprint } from './constants';
-import { getPinGlobalPos, generateBezierPath, getPointOnBezier, checkCollision } from './utils/pcbUtils';
+import { getPinGlobalPos, generateBezierPath, getPointOnBezier, checkCollision, getBezierControlPoints } from './utils/pcbUtils';
 import { exportToGRBL } from './utils/grblExporter';
 
 import Canvas from './Canvas';
@@ -83,25 +83,42 @@ const App: React.FC = () => {
 
   const runDRC = useCallback(() => {
     setIsDrcRunning(true);
-    const invalid = new Set<string>(); const markers: Vector2[] = [];
+    const invalid = new Set<string>(); 
+    const markers: Vector2[] = [];
+    const markedPairs = new Set<string>(); // Tracks already marked colliding pairs
     const clearance = SNAP_SIZE * 0.45;
+    
     const traceData = traces.map(t => {
       const p1 = allPins.find(p => p.id === t.fromPinId), p2 = allPins.find(p => p.id === t.toPinId);
       if (!p1 || !p2) return null;
       return { id: t.id, from: t.fromPinId, to: t.toPinId, pts: Array.from({ length: 15 }, (_, i) => getPointOnBezier(i / 14, p1.globalPos!, p2.globalPos!, t)) };
     }).filter(d => d !== null);
+
     for (let i = 0; i < traceData.length; i++) {
       for (let j = i + 1; j < traceData.length; j++) {
         const a = traceData[i]!; const b = traceData[j]!;
+        // Shared pin connections are not collisions
         if (a.from === b.from || a.from === b.to || a.to === b.from || a.to === b.to) continue;
-        for (const pa of a.pts) for (const pb of b.pts) if (checkCollision(pa, pb, clearance)) {
-          invalid.add(a.id); invalid.add(b.id);
-          if (markers.length < 30) markers.push({ x: (pa.x + pb.x)/2, y: (pa.y + pb.y)/2 });
-          break;
+        
+        const pairKey = [a.id, b.id].sort().join('-');
+        if (markedPairs.has(pairKey)) continue;
+
+        for (const pa of a.pts) {
+          for (const pb of b.pts) {
+            if (checkCollision(pa, pb, clearance)) {
+              invalid.add(a.id); 
+              invalid.add(b.id);
+              markers.push({ x: (pa.x + pb.x)/2, y: (pa.y + pb.y)/2 });
+              markedPairs.add(pairKey);
+              break;
+            }
+          }
+          if (markedPairs.has(pairKey)) break;
         }
       }
     }
-    setInvalidTraceIds(invalid); setViolationMarkers(markers);
+    setInvalidTraceIds(invalid); 
+    setViolationMarkers(markers);
     setLastCheckResult(invalid.size > 0 ? 'fail' : (traces.length > 0 ? 'pass' : 'none'));
     setTimeout(() => setIsDrcRunning(false), 200);
   }, [traces, allPins]);
@@ -154,7 +171,28 @@ const App: React.FC = () => {
     }
     if (tool === 'pan' || e.button === 1) { dragRef.current = { type: 'pan', startWorld: { x: e.clientX, y: e.clientY } }; return; }
 
-    // Hit detection - Pins first for Routing
+    // Hit detection - Trace Handles first (higher priority for selected traces)
+    for (const traceId of selectedIds) {
+      const t = traces.find(tr => tr.id === traceId);
+      if (t) {
+        const p1 = allPins.find(p => p.id === t.fromPinId), p2 = allPins.find(p => p.id === t.toPinId);
+        if (p1 && p2) {
+          const { cx1, cy1, cx2, cy2 } = getBezierControlPoints(p1.globalPos!, p2.globalPos!, t);
+          if (checkCollision({x: cx1, y: cy1}, world, 12)) {
+            dragRef.current = { type: 'handle', id: t.id, handleIdx: 1, startWorld: world };
+            saveToHistory();
+            return;
+          }
+          if (checkCollision({x: cx2, y: cy2}, world, 12)) {
+            dragRef.current = { type: 'handle', id: t.id, handleIdx: 2, startWorld: world };
+            saveToHistory();
+            return;
+          }
+        }
+      }
+    }
+
+    // Hit detection - Pins for Routing
     const hitPin = allPins.find(p => checkCollision(p.globalPos!, world, 14));
     if (hitPin) {
       dragRef.current = { type: 'route', id: hitPin.id, startWorld: world };
@@ -208,6 +246,16 @@ const App: React.FC = () => {
     if (drag.type === 'pan') {
       const dx = e.clientX - drag.startWorld.x; const dy = e.clientY - drag.startWorld.y;
       setViewport(v => ({ ...v, x: v.x + dx, y: v.y + dy })); drag.startWorld = { x: e.clientX, y: e.clientY };
+    } else if (drag.type === 'handle') {
+      setTraces(prev => prev.map(t => {
+        if (t.id !== drag.id) return t;
+        const p1 = allPins.find(p => p.id === t.fromPinId);
+        const p2 = allPins.find(p => p.id === t.toPinId);
+        if (!p1 || !p2) return t;
+        const base = drag.handleIdx === 1 ? p1.globalPos! : p2.globalPos!;
+        const offset = { x: world.x - base.x, y: world.y - base.y };
+        return drag.handleIdx === 1 ? { ...t, c1Offset: offset } : { ...t, c2Offset: offset };
+      }));
     } else if (drag.type === 'potential_split') {
       if (Math.hypot(world.x - drag.startWorld.x, world.y - drag.startWorld.y) > 10) {
         const t = traces.find(tr => tr.id === drag.id);
@@ -322,7 +370,17 @@ const App: React.FC = () => {
         <Toolbar 
           tool={tool} setTool={setTool} undo={undo} canUndo={history.length > 0}
           centerView={centerView} rotateSelected={() => { saveToHistory(); setComponents(prev => prev.map(c => selectedIds.has(c.id) ? {...c, rotation: (c.rotation+90)%360} : c)); }}
-          deleteSelected={deleteSelected} handleZoom={(d) => setViewport(v => ({...v, scale: Math.min(Math.max(v.scale * (d>0?1.15:0.85), 0.1), 5)}))}
+          deleteSelected={deleteSelected} handleZoom={(d) => {
+            const svg = boardRef.current; if (!svg) return;
+            const rect = svg.getBoundingClientRect();
+            const cx = rect.width / 2; const cy = rect.height / 2;
+            setViewport(v => {
+              const factor = d > 0 ? 1.15 : 0.85;
+              const nextScale = Math.min(Math.max(v.scale * factor, 0.1), 5);
+              const wx = (cx - v.x) / v.scale; const wy = (cy - v.y) / v.scale;
+              return { x: cx - wx * nextScale, y: cy - wy * nextScale, scale: nextScale };
+            });
+          }}
           scale={viewport.scale} selectionSize={selectedIds.size}
         />
         <Canvas 
@@ -331,7 +389,17 @@ const App: React.FC = () => {
           hoveredCompId={hoveredCompId} viewport={viewport} routingPreview={routingPreview}
           marquee={marquee} violationMarkers={violationMarkers} pendingFootprintId={pendingFootprintId}
           previewPos={previewPos} onPointerDown={onPointerDown} onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp} onWheel={(e) => setViewport(v => ({...v, scale: Math.min(Math.max(v.scale * (e.deltaY<0?1.15:0.85), 0.1), 5)}))}
+          onPointerUp={onPointerUp} onWheel={(e) => {
+            const rect = boardRef.current?.getBoundingClientRect();
+            if (!rect) return;
+            const mx = e.clientX - rect.left; const my = e.clientY - rect.top;
+            setViewport(v => {
+              const factor = e.deltaY < 0 ? 1.1 : 0.9;
+              const nextScale = Math.min(Math.max(v.scale * factor, 0.1), 10);
+              const wx = (mx - v.x) / v.scale; const wy = (my - v.y) / v.scale;
+              return { x: mx - wx * nextScale, y: my - wy * nextScale, scale: nextScale };
+            });
+          }}
           getFootprint={getFootprint} getCompPosForPinTarget={getCompPosForPinTarget}
         />
       </div>

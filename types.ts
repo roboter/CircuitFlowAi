@@ -20,7 +20,8 @@ export interface Footprint {
   width: number;
   height: number;
   pins: Pin[];
-  valueType?: 'resistance' | 'capacitance'; // Dynamic property type
+  valueType?: 'resistance' | 'capacitance' | 'inductance' | 'voltage'; // Expanded value types
+  shape?: 'rect' | 'circle'; // New field for package style
 }
 
 export interface PCBComponent {
