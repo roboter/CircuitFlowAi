@@ -5,8 +5,6 @@ export const SNAP_SIZE = 25.4; // 0.1 inch standard pitch
 
 /**
  * Generates a standard DIP footprint with given pin count.
- * Pitch is 0.1" (25.4mm).
- * Row spacing is 0.3" (76.2mm) for <= 20 pins, 0.6" (152.4mm) for >= 24 pins.
  */
 export const generateDIPFootprint = (pinCount: number): Footprint => {
   const pitch = 25.4;
@@ -19,7 +17,6 @@ export const generateDIPFootprint = (pinCount: number): Footprint => {
   
   const pins: Pin[] = [];
   
-  // Left side: Top to Bottom
   for (let i = 0; i < pinsPerRow; i++) {
     pins.push({
       id: `p${i + 1}`,
@@ -30,7 +27,6 @@ export const generateDIPFootprint = (pinCount: number): Footprint => {
     });
   }
   
-  // Right side: Bottom to Top (U-shape)
   for (let i = 0; i < pinsPerRow; i++) {
     const pinIndex = pinsPerRow + i;
     if (pinIndex >= pinCount) break;
@@ -52,10 +48,6 @@ export const generateDIPFootprint = (pinCount: number): Footprint => {
   };
 };
 
-/**
- * Generates a single-row pin header.
- * Pitch is 0.1" (25.4mm).
- */
 export const generateHeaderFootprint = (pinCount: number): Footprint => {
   const pitch = 25.4;
   const padding = 25.4;
@@ -144,20 +136,6 @@ export const FOOTPRINTS: Footprint[] = [
     "valueType": "capacitance"
   },
   {
-    "id": "dip",
-    "name": "DIP IC",
-    "width": 127.0,
-    "height": 101.6,
-    "pins": []
-  },
-  {
-    "id": "header",
-    "name": "Pin Header",
-    "width": 50.8,
-    "height": 50.8,
-    "pins": []
-  },
-  {
     "id": "led",
     "name": "LED 5mm",
     "width": 50.8,
@@ -177,17 +155,34 @@ export const FOOTPRINTS: Footprint[] = [
     ]
   },
   {
-    "id": "PIN",
-    "name": "Junction",
-    "width": 25.4,
-    "height": 25.4,
-    "pins": [
-      {"id": "p1", "componentId": "", "name": "J", "localPos": {"x": 12.7, "y": 12.7}, "type": "io"}
-    ]
+    "id": "dip",
+    "name": "DIP IC",
+    "width": 127.0,
+    "height": 101.6,
+    "pins": []
+  },
+  {
+    "id": "header",
+    "name": "Pin Header",
+    "width": 50.8,
+    "height": 50.8,
+    "pins": []
   }
 ];
 
+// Junction is a system footprint, not in user library
+const JUNCTION_FOOTPRINT: Footprint = {
+  "id": "JUNCTION",
+  "name": "Junction",
+  "width": 25.4,
+  "height": 25.4,
+  "pins": [
+    {"id": "p1", "componentId": "", "name": "J", "localPos": {"x": 12.7, "y": 12.7}, "type": "io"}
+  ]
+};
+
 export const getFootprint = (id: string): Footprint | undefined => {
+  if (id === 'JUNCTION') return JUNCTION_FOOTPRINT;
   if (id.startsWith('dip_')) {
     const pins = parseInt(id.replace('dip_', ''));
     return generateDIPFootprint(pins);
