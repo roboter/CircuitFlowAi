@@ -391,8 +391,25 @@ const App: React.FC = () => {
              }
           }
 
-          const s1 = { id: `tr_${Date.now()}_1`, fromPinId: t.fromPinId, toPinId: jPinId, width: t.width, color: t.color, c2Offset: offsetIn };
-          const s2 = { id: `tr_${Date.now()}_2`, fromPinId: jPinId, toPinId: t.toPinId, width: t.width, color: t.color, c1Offset: offsetOut };
+          // CRITICAL FIX: Preserve original control point offsets at the ends to prevent breaking existing junction smoothness
+          const s1 = { 
+            id: `tr_${Date.now()}_1`, 
+            fromPinId: t.fromPinId, 
+            toPinId: jPinId, 
+            width: t.width, 
+            color: t.color, 
+            c1Offset: t.c1Offset, 
+            c2Offset: offsetIn 
+          };
+          const s2 = { 
+            id: `tr_${Date.now()}_2`, 
+            fromPinId: jPinId, 
+            toPinId: t.toPinId, 
+            width: t.width, 
+            color: t.color, 
+            c1Offset: offsetOut, 
+            c2Offset: t.c2Offset 
+          };
           
           setComponents(prev => [...prev, newJ]);
           setTraces(prev => [...prev.filter(tr => tr.id !== t.id), s1, s2]);

@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { FOOTPRINTS } from './constants';
 import { 
@@ -59,15 +58,15 @@ const Sidebar: React.FC<SidebarProps> = ({
   isDrcRunning, runDRC, exportToSVG, exportToGRBL, saveProject, loadProject, loadExample
 }) => {
   return (
-    <div className="w-72 bg-[#0A1A0F] border-r border-[#1A4A23] flex flex-col p-4 gap-6 z-10 shadow-xl">
+    <div className="w-64 bg-[#0A1A0F] border-r border-[#1A4A23] flex flex-col p-4 gap-6 z-10 shadow-xl">
       <div className="flex items-center gap-3 px-2">
         <CircuitBoard className="text-emerald-500" size={24} />
         <h1 className="font-bold text-xl tracking-tight text-white italic">CircuitFlow</h1>
       </div>
       
-      <div className="flex flex-col gap-3 overflow-hidden">
-        <label className="text-[10px] font-black text-emerald-900 uppercase tracking-widest px-2">COMPONENTS</label>
-        <div className="grid grid-cols-2 gap-2 overflow-y-auto pr-1 scrollbar-thin max-h-[40vh]">
+      <div className="flex flex-col gap-4 overflow-hidden">
+        <label className="text-[10px] font-black text-emerald-900 uppercase tracking-widest px-2 opacity-50">COMPONENTS</label>
+        <div className="grid grid-cols-3 gap-2 overflow-y-auto pr-1 scrollbar-none max-h-[50vh]">
           {FOOTPRINTS.filter(f => f.id !== 'JUNCTION').map(f => {
             const Icon = ICON_MAP[f.id] || Plus;
             const isPending = pendingFootprintId === f.id;
@@ -76,16 +75,13 @@ const Sidebar: React.FC<SidebarProps> = ({
                 key={f.id} 
                 onClick={() => onLibraryClick(f.id)} 
                 title={f.name}
-                className={`flex flex-col items-center justify-center gap-2 p-3 rounded-xl border transition-all ${
+                className={`flex items-center justify-center aspect-square p-2 rounded-xl border transition-all ${
                   isPending 
-                    ? 'bg-emerald-500 border-emerald-400 text-black shadow-[0_0_15px_rgba(16,185,129,0.3)] scale-[0.98]' 
-                    : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-emerald-900 hover:bg-[#152B1B] hover:text-emerald-400'
+                    ? 'bg-emerald-500 border-emerald-400 text-black shadow-[0_0_15px_rgba(16,185,129,0.3)]' 
+                    : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-emerald-500 hover:bg-[#152B1B] hover:text-emerald-400'
                 }`}
               >
-                <Icon size={20} className={isPending ? "text-black" : "opacity-60"} />
-                <span className="text-[9px] font-black uppercase tracking-tighter truncate w-full text-center">
-                  {f.name.split(' ')[0]}
-                </span>
+                <Icon size={24} className={isPending ? "text-black" : "opacity-80"} />
               </button>
             );
           })}

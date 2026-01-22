@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { PCBComponent, Trace, Vector2, Pin } from './types';
 import { SNAP_SIZE } from './constants';
@@ -99,7 +98,7 @@ const Canvas: React.FC<CanvasProps> = ({
               ))}
               {!isJ && <text x={cx} y={-10} textAnchor="middle" fill={isS || isH ? "#10B981" : "#3f3f46"} className="text-[10px] font-bold font-mono pointer-events-none uppercase tracking-widest">{c.name}</text>}
               {c.locked && !isJ && (
-                <g transform={`translate(${cx + 4}, ${cy + 4}) scale(0.4)`}>
+                <g transform={`translate(${cx}, ${cy}) scale(1.8)`} opacity="0.15" pointerEvents="none">
                    <rect x="-15" y="-15" width="30" height="30" rx="8" fill="#ef4444" />
                    <path d="M-6 -4 L-6 -8 C-6 -11 -4 -13 0 -13 C4 -13 6 -11 6 -8 L6 -4" stroke="white" strokeWidth="3" fill="none" />
                 </g>
