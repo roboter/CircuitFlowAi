@@ -2,7 +2,7 @@
 import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { PCBComponent, Trace, Vector2 } from './types';
 import { FOOTPRINTS, SNAP_SIZE, getFootprint } from './constants';
-import { getPinGlobalPos, generateBezierPath, getPointOnBezier, checkCollision, getBezierControlPoints } from './utils/pcbUtils';
+import { getPinGlobalPos, generateBezierPath, getPointOnBezier, checkCollision, getBezierControlPoints, findConnectedTraces } from './utils/pcbUtils';
 import { exportToGRBL } from './utils/grblExporter';
 
 import Canvas from './Canvas';
@@ -12,7 +12,6 @@ import Toolbar from './Toolbar';
 import Modals from './Modals';
 
 const App: React.FC = () => {
-  // --- Shared State ---
   const [components, setComponents] = useState<PCBComponent[]>([]);
   const [traces, setTraces] = useState<Trace[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -30,7 +29,6 @@ const App: React.FC = () => {
   const [viewport, setViewport] = useState({ x: 0, y: 0, scale: 0.5 });
   const [history, setHistory] = useState<{components: PCBComponent[], traces: Trace[]}[]>([]);
 
-  // Interaction refs
   const dragRef = useRef<{
     type: 'move' | 'route' | 'pan' | 'marquee' | 'handle' | 'potential_split';
     id?: string;
@@ -47,7 +45,6 @@ const App: React.FC = () => {
   const viewportRef = useRef<SVGGElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // --- Derived Mappings ---
   const allPins = useMemo(() => components.flatMap(comp => {
     const footprint = getFootprint(comp.footprintId);
     return footprint?.pins.map(p => ({
@@ -60,8 +57,8 @@ const App: React.FC = () => {
     traces: traces.filter(t => selectedIds.has(t.id))
   }), [components, traces, selectedIds]);
 
-  // --- Core Handlers ---
   const saveToHistory = useCallback(() => setHistory(prev => [...prev, { components, traces }].slice(-50)), [components, traces]);
+  
   const undo = useCallback(() => {
     if (history.length === 0) return;
     const last = history[history.length - 1];
@@ -169,7 +166,6 @@ const App: React.FC = () => {
     }
     if (tool === 'pan' || e.button === 1) { dragRef.current = { type: 'pan', startWorld: { x: e.clientX, y: e.clientY } }; return; }
 
-    // Hit detection - Trace Handles first (higher priority for selected traces)
     for (const traceId of selectedIds) {
       const t = traces.find(tr => tr.id === traceId);
       if (t) {
@@ -178,19 +174,16 @@ const App: React.FC = () => {
           const { cx1, cy1, cx2, cy2 } = getBezierControlPoints(p1.globalPos!, p2.globalPos!, t);
           if (checkCollision({x: cx1, y: cy1}, world, 12)) {
             dragRef.current = { type: 'handle', id: t.id, handleIdx: 1, startWorld: world };
-            saveToHistory();
-            return;
+            saveToHistory(); return;
           }
           if (checkCollision({x: cx2, y: cy2}, world, 12)) {
             dragRef.current = { type: 'handle', id: t.id, handleIdx: 2, startWorld: world };
-            saveToHistory();
-            return;
+            saveToHistory(); return;
           }
         }
       }
     }
 
-    // Hit detection - Pins for Routing
     const hitPin = allPins.find(p => checkCollision(p.globalPos!, world, 7));
     if (hitPin) {
       const comp = components.find(c => c.id === hitPin.componentId);
@@ -200,7 +193,6 @@ const App: React.FC = () => {
       }
     }
 
-    // Components & Traces for selection/move
     const hitComps = components.filter(c => {
       const f = getFootprint(c.footprintId); if (!f) return false;
       const hitSlop = c.footprintId === 'JUNCTION' ? 18 : 0;
@@ -219,13 +211,23 @@ const App: React.FC = () => {
     if (allHits.length > 0) {
       let nextId = allHits[0];
       if (selectedIds.has(nextId) && !e.shiftKey) nextId = allHits[(allHits.findIndex(h => selectedIds.has(h)) + 1) % allHits.length];
-      
       if (e.shiftKey) { const next = new Set(selectedIds); if (next.has(nextId)) next.delete(nextId); else next.add(nextId); setSelectedIds(next); }
       else if (!selectedIds.has(nextId)) setSelectedIds(new Set([nextId]));
 
       if (hitComps.includes(nextId)) {
+        const comp = components.find(c => c.id === nextId);
+        // If the clicked component is locked, only allow selection, not movement
+        if (comp && comp.locked) {
+           dragRef.current = null;
+           return;
+        }
+
         saveToHistory(); const map = new Map(); 
-        if (selectedIds.has(nextId) && selectedIds.size > 1) { components.forEach(c => { if(selectedIds.has(c.id)) map.set(c.id, {...c.position}); }); }
+        if (selectedIds.has(nextId) && selectedIds.size > 1) { 
+           components.forEach(c => { 
+             if(selectedIds.has(c.id) && !c.locked) map.set(c.id, {...c.position}); 
+           }); 
+        }
         const pinRef = allPins.find(p => p.componentId === nextId);
         dragRef.current = { type: 'move', id: nextId, startWorld: world, offset: pinRef ? { x: world.x - pinRef.globalPos!.x, y: world.y - pinRef.globalPos!.y } : { x: 0, y: 0 }, groupInitialPositions: map.size > 0 ? map : undefined, hasMoved: false };
       } else if (hitTraces.includes(nextId)) {
@@ -262,8 +264,7 @@ const App: React.FC = () => {
     } else if (drag.type === 'handle') {
       setTraces(prev => prev.map(t => {
         if (t.id !== drag.id) return t;
-        const p1 = allPins.find(p => p.id === t.fromPinId);
-        const p2 = allPins.find(p => p.id === t.toPinId);
+        const p1 = allPins.find(p => p.id === t.fromPinId), p2 = allPins.find(p => p.id === t.toPinId);
         if (!p1 || !p2) return t;
         const base = drag.handleIdx === 1 ? p1.globalPos! : p2.globalPos!;
         const offset = { x: world.x - base.x, y: world.y - base.y };
@@ -284,13 +285,18 @@ const App: React.FC = () => {
     } else if (drag.type === 'move') {
       const delta = { x: world.x - drag.startWorld.x, y: world.y - drag.startWorld.y };
       if (drag.groupInitialPositions) {
-        const mi = drag.groupInitialPositions.get(drag.id!)!; const isJ = components.find(c => c.id === drag.id)?.footprintId === 'JUNCTION';
+        // Find if the anchor drag component is locked
+        const mi = drag.groupInitialPositions.get(drag.id!)!; 
+        const isJ = components.find(c => c.id === drag.id)?.footprintId === 'JUNCTION';
         const snp = { x: snap(mi.x + delta.x, isJ), y: snap(mi.y + delta.y, isJ) };
         const fd = { x: snp.x - mi.x, y: snp.y - mi.y };
-        setComponents(prev => prev.map(c => { const ip = drag.groupInitialPositions!.get(c.id); return ip ? { ...c, position: { x: ip.x + fd.x, y: ip.y + fd.y } } : c; }));
+        setComponents(prev => prev.map(c => { 
+          const ip = drag.groupInitialPositions!.get(c.id); 
+          return (ip && !c.locked) ? { ...c, position: { x: ip.x + fd.x, y: ip.y + fd.y } } : c; 
+        }));
       } else {
         const comp = components.find(c => c.id === drag.id) || (drag.initialComp as PCBComponent);
-        if (comp) {
+        if (comp && !comp.locked) {
           const isJ = comp.footprintId === 'JUNCTION';
           const target = { x: snap(world.x - (drag.offset?.x || 0), isJ), y: snap(world.y - (drag.offset?.y || 0), isJ) };
           setComponents(prev => prev.map(c => c.id === drag.id ? { ...c, position: getCompPosForPinTarget(comp.footprintId, target, comp.rotation) } : c));
@@ -299,11 +305,11 @@ const App: React.FC = () => {
       setTraces(prev => prev.map(t => {
         const mcs = drag.groupInitialPositions ? Array.from(drag.groupInitialPositions.keys()) : [drag.id!];
         const aps = allPins.filter(p => mcs.includes(p.componentId)).map(p => p.id);
-        const isF = aps.includes(t.fromPinId); const isT = aps.includes(t.toPinId);
+        const isF = aps.includes(t.fromPinId), isT = aps.includes(t.toPinId);
         if (isF || isT) {
           const node = isF ? t.fromPinId : t.toPinId; const cts = prev.filter(a => a.fromPinId === node || a.toPinId === node);
           if (cts.length === 2) {
-            const curH = isF ? (t.c1Offset || {x:0,y:0}) : (t.c2Offset || {x:0,y:0}); const mir = { x: -curH.x, y: -curH.y };
+            const curH = isF ? (t.c1Offset || {x:0,y:0}) : (t.c2Offset || {x:0,y:0}), mir = { x: -curH.x, y: -curH.y };
             const adj = cts.find(a => a.id !== t.id); if (adj) { if (adj.fromPinId === node) adj.c1Offset = mir; else adj.c2Offset = mir; }
           }
         }
@@ -333,6 +339,11 @@ const App: React.FC = () => {
     dragRef.current = null; setRoutingPreview(null); setMarquee(null); setHoveredPinId(null);
   };
 
+  const onTraceDoubleClick = (traceId: string) => {
+    const wholeTrace = findConnectedTraces(traceId, traces, components);
+    setSelectedIds(new Set(wholeTrace));
+  };
+
   const deleteSelected = useCallback(() => {
     if (selectedIds.size === 0) return; saveToHistory();
     const isJunc = components.find(c => selectedIds.has(c.id) && c.footprintId === 'JUNCTION');
@@ -345,10 +356,16 @@ const App: React.FC = () => {
         setComponents(prev => prev.filter(c => c.id !== isJunc.id)); setSelectedIds(new Set()); return;
       }
     }
+    // Only allow deleting non-locked components unless explicitly specified otherwise, but for now we follow "cannot move" primarily.
     setComponents(prev => prev.filter(c => !selectedIds.has(c.id)));
     setTraces(prev => prev.filter(t => !selectedIds.has(t.id) && !selectedIds.has(allPins.find(p => p.id === t.fromPinId)?.componentId || '') && !selectedIds.has(allPins.find(p => p.id === t.toPinId)?.componentId || '')));
     setSelectedIds(new Set());
   }, [selectedIds, components, traces, saveToHistory, allPins]);
+
+  const onUpdateTrace = (id: string, updates: Partial<Trace>) => {
+    saveToHistory();
+    setTraces(prev => prev.map(t => (t.id === id || selectedIds.has(t.id)) ? { ...t, ...updates } : t));
+  };
 
   const exportSVG = () => {
     const svg = boardRef.current; if (!svg) return;
@@ -367,13 +384,9 @@ const App: React.FC = () => {
       <Sidebar 
         pendingFootprintId={pendingFootprintId}
         onLibraryClick={(fid) => { if(fid==='dip') setModalMode('ic'); else if(fid==='header') setModalMode('header'); else setPendingFootprintId(fid); }}
-        lastCheckResult={lastCheckResult}
-        invalidTraceCount={invalidTraceIds.size}
-        isDrcRunning={isDrcRunning}
-        runDRC={runDRC}
-        exportToSVG={exportSVG}
-        // Fixed: Use local handler exportGRBL instead of imported utility exportToGRBL
-        exportToGRBL={exportGRBL}
+        lastCheckResult={lastCheckResult} invalidTraceCount={invalidTraceIds.size}
+        isDrcRunning={isDrcRunning} runDRC={runDRC}
+        exportToSVG={exportSVG} exportToGRBL={exportGRBL}
         saveProject={() => {
           const blob = new Blob([JSON.stringify({components, traces})], {type: 'application/json'});
           const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `project_${Date.now()}.json`; a.click();
@@ -383,15 +396,15 @@ const App: React.FC = () => {
       <div className="flex-1 relative overflow-hidden bg-[#050C07]">
         <Toolbar 
           tool={tool} setTool={setTool} undo={undo} canUndo={history.length > 0}
-          centerView={centerView} rotateSelected={() => { saveToHistory(); setComponents(prev => prev.map(c => selectedIds.has(c.id) ? {...c, rotation: (c.rotation+90)%360} : c)); }}
+          centerView={centerView} rotateSelected={() => { saveToHistory(); setComponents(prev => prev.map(c => (selectedIds.has(c.id) && !c.locked) ? {...c, rotation: (c.rotation+90)%360} : c)); }}
           deleteSelected={deleteSelected} handleZoom={(d) => {
             const svg = boardRef.current; if (!svg) return;
             const rect = svg.getBoundingClientRect();
-            const cx = rect.width / 2; const cy = rect.height / 2;
+            const cx = rect.width / 2, cy = rect.height / 2;
             setViewport(v => {
               const factor = d > 0 ? 1.15 : 0.85;
               const nextScale = Math.min(Math.max(v.scale * factor, 0.1), 5);
-              const wx = (cx - v.x) / v.scale; const wy = (cy - v.y) / v.scale;
+              const wx = (cx - v.x) / v.scale, wy = (cy - v.y) / v.scale;
               return { x: cx - wx * nextScale, y: cy - wy * nextScale, scale: nextScale };
             });
           }}
@@ -403,14 +416,14 @@ const App: React.FC = () => {
           hoveredCompId={hoveredCompId} viewport={viewport} routingPreview={routingPreview}
           marquee={marquee} violationMarkers={violationMarkers} pendingFootprintId={pendingFootprintId}
           previewPos={previewPos} onPointerDown={onPointerDown} onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp} onWheel={(e) => {
-            const rect = boardRef.current?.getBoundingClientRect();
-            if (!rect) return;
-            const mx = e.clientX - rect.left; const my = e.clientY - rect.top;
+          onPointerUp={onPointerUp} onTraceDoubleClick={onTraceDoubleClick}
+          onWheel={(e) => {
+            const rect = boardRef.current?.getBoundingClientRect(); if (!rect) return;
+            const mx = e.clientX - rect.left, my = e.clientY - rect.top;
             setViewport(v => {
               const factor = e.deltaY < 0 ? 1.1 : 0.9;
               const nextScale = Math.min(Math.max(v.scale * factor, 0.1), 10);
-              const wx = (mx - v.x) / v.scale; const wy = (my - v.y) / v.scale;
+              const wx = (mx - v.x) / v.scale, wy = (my - v.y) / v.scale;
               return { x: mx - wx * nextScale, y: my - wy * nextScale, scale: nextScale };
             });
           }}
@@ -421,7 +434,7 @@ const App: React.FC = () => {
         selectedComponents={selectedItems.components} selectedTraces={selectedItems.traces}
         hoveredCompId={hoveredCompId} onMouseEnterItem={setHoveredCompId}
         onUpdateComponent={(id, u) => { saveToHistory(); setComponents(prev => prev.map(c => c.id === id ? {...c, ...u} : c)); }}
-        onUpdateTrace={(id, w) => { saveToHistory(); setTraces(prev => prev.map(t => t.id === id ? {...t, width: w} : t)); }}
+        onUpdateTrace={onUpdateTrace}
         onRemoveItem={(id) => { saveToHistory(); setSelectedIds(new Set([id])); deleteSelected(); }}
         onClearSelection={() => setSelectedIds(new Set())}
         onIsolate={(id) => setSelectedIds(new Set([id]))}

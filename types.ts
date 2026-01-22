@@ -31,6 +31,7 @@ export interface PCBComponent {
   position: Vector2;
   rotation: number; // in degrees
   value?: string; // e.g., "10k", "100uF"
+  locked?: boolean; // New field to prevent movement
 }
 
 export interface Trace {

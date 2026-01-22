@@ -1,7 +1,9 @@
+
 import React from 'react';
 import { PCBComponent, Trace, Vector2, Pin } from './types';
 import { SNAP_SIZE } from './constants';
-import { generateBezierPath, getBezierControlPoints, getPointOnBezier } from './utils/pcbUtils';
+import { generateBezierPath, getBezierControlPoints } from './utils/pcbUtils';
+import { Lock } from 'lucide-react';
 
 interface CanvasProps {
   boardRef: React.RefObject<SVGSVGElement>;
@@ -21,6 +23,7 @@ interface CanvasProps {
   onPointerDown: (e: React.PointerEvent) => void;
   onPointerMove: (e: React.PointerEvent) => void;
   onPointerUp: (e: React.PointerEvent) => void;
+  onTraceDoubleClick: (id: string) => void;
   onWheel: (e: React.WheelEvent) => void;
   getFootprint: (id: string) => any;
   getCompPosForPinTarget: (fid: string, target: Vector2, rot: number) => Vector2;
@@ -30,7 +33,7 @@ const Canvas: React.FC<CanvasProps> = ({
   boardRef, viewportRef, components, traces, allPins, selectedIds,
   hoveredPinId, hoveredCompId, viewport, routingPreview, marquee,
   violationMarkers, pendingFootprintId, previewPos,
-  onPointerDown, onPointerMove, onPointerUp, onWheel,
+  onPointerDown, onPointerMove, onPointerUp, onTraceDoubleClick, onWheel,
   getFootprint, getCompPosForPinTarget
 }) => {
   const hoveredPin = allPins.find(p => p.id === hoveredPinId);
@@ -47,13 +50,11 @@ const Canvas: React.FC<CanvasProps> = ({
       onWheel={onWheel}
     >
       <g ref={viewportRef} transform={`translate(${viewport.x}, ${viewport.y}) scale(${viewport.scale})`}>
-        {/* Grid Background */}
         <pattern id="grid" width={SNAP_SIZE} height={SNAP_SIZE} patternUnits="userSpaceOnUse">
           <circle cx="1" cy="1" r="1.2" fill="#152B1B" />
         </pattern>
         <rect x="-10000" y="-10000" width="20000" height="20000" fill="url(#grid)" />
 
-        {/* Components & Junctions */}
         {components.map(c => {
           const foot = getFootprint(c.footprintId);
           if (!foot) return null;
@@ -70,19 +71,9 @@ const Canvas: React.FC<CanvasProps> = ({
             <g key={c.id} transform={`translate(${c.position.x}, ${c.position.y}) rotate(${c.rotation}, ${cx}, ${cy})`}>
               {!isJ && (
                 foot.shape === 'circle' ? (
-                  <circle 
-                    cx={cx} cy={cy} r={Math.max(foot.width, foot.height) / 2}
-                    fill={isS ? '#10b98110' : 'transparent'} 
-                    stroke={isS || isH ? '#10B981' : '#27272a'} 
-                    strokeWidth={isS || isH ? "3" : "1.5"}
-                  />
+                  <circle cx={cx} cy={cy} r={Math.max(foot.width, foot.height) / 2} fill={isS ? '#10b98110' : 'transparent'} stroke={isS || isH ? '#10B981' : '#27272a'} strokeWidth={isS || isH ? "3" : "1.5"} />
                 ) : (
-                  <rect 
-                    width={foot.width} height={foot.height} 
-                    fill={isS ? '#10b98110' : 'transparent'} 
-                    stroke={isS || isH ? '#10B981' : '#27272a'} 
-                    strokeWidth={isS || isH ? "3" : "1.5"} rx="4" 
-                  />
+                  <rect width={foot.width} height={foot.height} fill={isS ? '#10b98110' : 'transparent'} stroke={isS || isH ? '#10B981' : '#27272a'} strokeWidth={isS || isH ? "3" : "1.5"} rx="4" />
                 )
               )}
               {foot.pins.map(pin => (
@@ -92,11 +83,16 @@ const Canvas: React.FC<CanvasProps> = ({
                 </g>
               ))}
               {!isJ && <text x={cx} y={-10} textAnchor="middle" fill={isS || isH ? "#10B981" : "#3f3f46"} className="text-[10px] font-bold font-mono pointer-events-none uppercase tracking-widest">{c.name}</text>}
+              {c.locked && !isJ && (
+                <g transform={`translate(${cx + 4}, ${cy + 4}) scale(0.4)`}>
+                   <rect x="-15" y="-15" width="30" height="30" rx="8" fill="#ef4444" />
+                   <path d="M-6 -4 L-6 -8 C-6 -11 -4 -13 0 -13 C4 -13 6 -11 6 -8 L6 -4" stroke="white" strokeWidth="3" fill="none" />
+                </g>
+              )}
             </g>
           );
         })}
 
-        {/* Traces */}
         {traces.map(t => {
           const p1 = allPins.find(p => p.id === t.fromPinId);
           const p2 = allPins.find(p => p.id === t.toPinId);
@@ -104,20 +100,18 @@ const Canvas: React.FC<CanvasProps> = ({
           const isS = selectedIds.has(t.id);
           const path = generateBezierPath(p1.globalPos!, p2.globalPos!, t);
           return (
-            <g key={t.id}>
-              {/* Changed trace color to blue (#3b82f6) */}
-              <path d={path} stroke={isS ? '#3b82f6' : '#3b82f680'} strokeWidth={isS ? t.width + 4 : t.width} fill="none" strokeLinecap="round" />
+            <g key={t.id} onDoubleClick={(e) => { e.stopPropagation(); onTraceDoubleClick(t.id); }}>
+              <path d={path} stroke={isS ? t.color : t.color + '80'} strokeWidth={isS ? t.width + 4 : t.width} fill="none" strokeLinecap="round" />
               {isS && (
                 <g>
                   {(() => {
                     const { cx1, cy1, cx2, cy2 } = getBezierControlPoints(p1.globalPos!, p2.globalPos!, t);
                     return (
                       <>
-                        <line x1={p1.globalPos!.x} y1={p1.globalPos!.y} x2={cx1} y2={cy1} stroke="#3b82f6" strokeWidth="1" strokeDasharray="3 2" opacity="0.6" />
-                        <line x1={p2.globalPos!.x} y1={p2.globalPos!.y} x2={cx2} y2={cy2} stroke="#3b82f6" strokeWidth="1" strokeDasharray="3 2" opacity="0.6" />
-                        {/* Smaller control dots: r="5" instead of r="8" */}
-                        <circle cx={cx1} cy={cy1} r="5" fill="#3b82f6" stroke="#000" strokeWidth="1" className="cursor-move shadow-lg" />
-                        <circle cx={cx2} cy={cy2} r="5" fill="#3b82f6" stroke="#000" strokeWidth="1" className="cursor-move shadow-lg" />
+                        <line x1={p1.globalPos!.x} y1={p1.globalPos!.y} x2={cx1} y2={cy1} stroke={t.color} strokeWidth="1" strokeDasharray="3 2" opacity="0.6" />
+                        <line x1={p2.globalPos!.x} y1={p2.globalPos!.y} x2={cx2} y2={cy2} stroke={t.color} strokeWidth="1" strokeDasharray="3 2" opacity="0.6" />
+                        <circle cx={cx1} cy={cy1} r="5" fill={t.color} stroke="#000" strokeWidth="1" className="cursor-move shadow-lg" />
+                        <circle cx={cx2} cy={cy2} r="5" fill={t.color} stroke="#000" strokeWidth="1" className="cursor-move shadow-lg" />
                       </>
                     );
                   })()}
@@ -127,17 +121,9 @@ const Canvas: React.FC<CanvasProps> = ({
           );
         })}
 
-        {/* Hover Feedback & Tooltips */}
         {hoveredPin && (
           <g transform={`translate(${hoveredPin.globalPos!.x}, ${hoveredPin.globalPos!.y})`} className="pointer-events-none">
-             <circle 
-              r="14" 
-              fill="none" 
-              stroke="#3b82f6" 
-              strokeWidth="1.5" 
-              strokeDasharray="4 2" 
-              className="animate-spin-slow"
-            />
+             <circle r="14" fill="none" stroke="#3b82f6" strokeWidth="1.5" strokeDasharray="4 2" className="animate-spin-slow" />
             {showTooltip && (
               <g transform="translate(0, -22)">
                  <rect x="-45" y="-35" width="90" height="32" rx="6" fill="#0A1A0F" stroke="#10B981" strokeWidth="1.5" className="shadow-2xl" />
@@ -148,10 +134,7 @@ const Canvas: React.FC<CanvasProps> = ({
           </g>
         )}
 
-        {/* Previews & Markers */}
-        {routingPreview && (
-          <path d={routingPreview.path} stroke="#3b82f6" strokeWidth="6" fill="none" strokeDasharray="8 4" className="opacity-50" />
-        )}
+        {routingPreview && <path d={routingPreview.path} stroke="#3b82f6" strokeWidth="6" fill="none" strokeDasharray="8 4" className="opacity-50" />}
         
         {violationMarkers.map((m, i) => (
           <g key={i} transform={`translate(${m.x}, ${m.y})`}>
@@ -172,15 +155,8 @@ const Canvas: React.FC<CanvasProps> = ({
         {marquee && <rect x={Math.min(marquee.start.x, marquee.end.x)} y={Math.min(marquee.start.y, marquee.end.y)} width={Math.abs(marquee.end.x - marquee.start.x)} height={Math.abs(marquee.end.y - marquee.start.y)} fill="#10b98108" stroke="#10b981" strokeWidth="1" strokeDasharray="5 3" className="pointer-events-none" />}
       </g>
       <style>{`
-        @keyframes spin-slow {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-        .animate-spin-slow {
-          animation: spin-slow 8s linear infinite;
-          transform-origin: center;
-          transform-box: fill-box;
-        }
+        @keyframes spin-slow { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .animate-spin-slow { animation: spin-slow 8s linear infinite; transform-origin: center; transform-box: fill-box; }
       `}</style>
     </svg>
   );
