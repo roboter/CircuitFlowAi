@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { PCBComponent, Trace, Vector2 } from './types';
 import { FOOTPRINTS, SNAP_SIZE, getFootprint } from './constants';
@@ -85,7 +86,7 @@ const App: React.FC = () => {
     setIsDrcRunning(true);
     const invalid = new Set<string>(); 
     const markers: Vector2[] = [];
-    const markedPairs = new Set<string>(); // Tracks already marked colliding pairs
+    const markedPairs = new Set<string>(); 
     const clearance = SNAP_SIZE * 0.45;
     
     const traceData = traces.map(t => {
@@ -97,12 +98,9 @@ const App: React.FC = () => {
     for (let i = 0; i < traceData.length; i++) {
       for (let j = i + 1; j < traceData.length; j++) {
         const a = traceData[i]!; const b = traceData[j]!;
-        // Shared pin connections are not collisions
         if (a.from === b.from || a.from === b.to || a.to === b.from || a.to === b.to) continue;
-        
         const pairKey = [a.id, b.id].sort().join('-');
         if (markedPairs.has(pairKey)) continue;
-
         for (const pa of a.pts) {
           for (const pb of b.pts) {
             if (checkCollision(pa, pb, clearance)) {
@@ -193,17 +191,21 @@ const App: React.FC = () => {
     }
 
     // Hit detection - Pins for Routing
-    const hitPin = allPins.find(p => checkCollision(p.globalPos!, world, 14));
+    const hitPin = allPins.find(p => checkCollision(p.globalPos!, world, 7));
     if (hitPin) {
-      dragRef.current = { type: 'route', id: hitPin.id, startWorld: world };
-      return;
+      const comp = components.find(c => c.id === hitPin.componentId);
+      if (comp?.footprintId !== 'JUNCTION') {
+        dragRef.current = { type: 'route', id: hitPin.id, startWorld: world };
+        return;
+      }
     }
 
     // Components & Traces for selection/move
     const hitComps = components.filter(c => {
       const f = getFootprint(c.footprintId); if (!f) return false;
-      if (c.footprintId === 'JUNCTION') return (selectedIds.has(c.id) || hoveredCompId === c.id) && world.x >= c.position.x && world.x <= c.position.x + f.width && world.y >= c.position.y && world.y <= c.position.y + f.height;
-      return world.x >= c.position.x && world.x <= c.position.x + f.width && world.y >= c.position.y && world.y <= c.position.y + f.height;
+      const hitSlop = c.footprintId === 'JUNCTION' ? 18 : 0;
+      return world.x >= c.position.x - hitSlop && world.x <= c.position.x + f.width + hitSlop && 
+             world.y >= c.position.y - hitSlop && world.y <= c.position.y + f.height + hitSlop;
     }).map(c => c.id).reverse();
 
     const hitTraces = traces.filter(t => {
@@ -239,8 +241,19 @@ const App: React.FC = () => {
     const world = getScreenToWorld(e.clientX, e.clientY);
     if (pendingFootprintId) { setPreviewPos(world); return; }
     const drag = dragRef.current;
+    
     const hp = allPins.find(p => checkCollision(p.globalPos!, world, 15));
     setHoveredPinId(hp?.id || null);
+    
+    const hc = components.find(c => {
+      const f = getFootprint(c.footprintId);
+      if(!f) return false;
+      const slop = c.footprintId === 'JUNCTION' ? 18 : 10;
+      return world.x >= c.position.x - slop && world.x <= c.position.x + f.width + slop &&
+             world.y >= c.position.y - slop && world.y <= c.position.y + f.height + slop;
+    });
+    setHoveredCompId(hc?.id || null);
+
     if (!drag) return;
 
     if (drag.type === 'pan') {
@@ -314,7 +327,7 @@ const App: React.FC = () => {
       const world = getScreenToWorld(e.clientX, e.clientY);
       const ep = allPins.find(p => checkCollision(p.globalPos!, world, 15) && p.id !== drag.id);
       if (ep && drag.id) { 
-        saveToHistory(); setTraces(prev => [...prev, { id: `tr_${Date.now()}`, fromPinId: drag.id!, toPinId: ep.id, width: 8, color: '#FCD34D' }]); 
+        saveToHistory(); setTraces(prev => [...prev, { id: `tr_${Date.now()}`, fromPinId: drag.id!, toPinId: ep.id, width: 8, color: '#3b82f6' }]); 
       }
     }
     dragRef.current = null; setRoutingPreview(null); setMarquee(null); setHoveredPinId(null);
@@ -328,7 +341,7 @@ const App: React.FC = () => {
       if (cts.length === 2) {
         const sP = cts[0].fromPinId.startsWith(isJunc.id) ? cts[0].toPinId : cts[0].fromPinId;
         const eP = cts[1].fromPinId.startsWith(isJunc.id) ? cts[1].toPinId : cts[1].fromPinId;
-        setTraces(prev => [...prev.filter(t => !cts.some(c => c.id === t.id)), { id: `tr_m_${Date.now()}`, fromPinId: sP, toPinId: eP, width: 8, color: '#FCD34D' }]);
+        setTraces(prev => [...prev.filter(t => !cts.some(c => c.id === t.id)), { id: `tr_m_${Date.now()}`, fromPinId: sP, toPinId: eP, width: 8, color: '#3b82f6' }]);
         setComponents(prev => prev.filter(c => c.id !== isJunc.id)); setSelectedIds(new Set()); return;
       }
     }
@@ -359,6 +372,7 @@ const App: React.FC = () => {
         isDrcRunning={isDrcRunning}
         runDRC={runDRC}
         exportToSVG={exportSVG}
+        // Fixed: Use local handler exportGRBL instead of imported utility exportToGRBL
         exportToGRBL={exportGRBL}
         saveProject={() => {
           const blob = new Blob([JSON.stringify({components, traces})], {type: 'application/json'});

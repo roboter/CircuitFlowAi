@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { PCBComponent, Trace } from './types';
 import { Settings2, Trash2, Layers, Activity, Zap, Eye } from 'lucide-react';
@@ -57,7 +56,7 @@ const Inspector: React.FC<InspectorProps> = ({
         </div>
       ) : selectedTraces.length === 1 ? (
         <div className="p-4 bg-zinc-950 border border-zinc-800 rounded-2xl flex flex-col gap-6">
-          <div className="flex items-center gap-2"><Activity size={18} className="text-[#FCD34D]" /><h3 className="text-xs font-black uppercase">Trace Properties</h3></div>
+          <div className="flex items-center gap-2"><Activity size={18} className="text-[#3b82f6]" /><h3 className="text-xs font-black uppercase">Trace Properties</h3></div>
           <div className="flex flex-col gap-3">
             <label className="text-[10px] text-emerald-900 font-black uppercase">Track Width</label>
             <input type="range" min="1" max="50" value={selectedTraces[0].width} onChange={(e) => onUpdateTrace(selectedTraces[0].id, parseInt(e.target.value))} className="w-full accent-emerald-500 bg-[#050C07] h-2 rounded-full appearance-none" />
