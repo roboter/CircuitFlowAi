@@ -35,7 +35,7 @@ const App: React.FC = () => {
     startWorld: Vector2;
     offset?: Vector2;
     hasMoved?: boolean;
-    initialComp?: Partial<PCBComponent> & { footprintId: string; rotation: number };
+    initialComp?: PCBComponent;
     groupInitialPositions?: Map<string, Vector2>;
   } | null>(null);
   const [routingPreview, setRoutingPreview] = useState<{path: string} | null>(null);
@@ -187,13 +187,6 @@ const App: React.FC = () => {
     setSelectedIds(new Set());
     setTimeout(() => centerView(), 100);
   }, [saveToHistory, centerView]);
-
-  const createJunctionAt = (world: Vector2): string => {
-    const jId = `comp_junc_${Date.now()}`;
-    const newJ: PCBComponent = { id: jId, footprintId: 'JUNCTION', name: 'J' + (components.length + 1), position: { x: world.x - 12.7, y: world.y - 12.7 }, rotation: 0, junctionType: 'smooth' };
-    setComponents(prev => [...prev, newJ]);
-    return `${jId}_p1`;
-  };
 
   const getCompPosForPinTarget = (fId: string, target: Vector2, rotation: number) => {
     const foot = getFootprint(fId); if (!foot || !foot.pins[0]) return target;
@@ -369,7 +362,18 @@ const App: React.FC = () => {
         const t = traces.find(tr => tr.id === drag.id);
         if (t) {
           saveToHistory();
-          const jid = createJunctionAt(world);
+          
+          const jId = `comp_junc_${Date.now()}`;
+          const newJ: PCBComponent = { 
+            id: jId, 
+            footprintId: 'JUNCTION', 
+            name: 'J' + (components.length + 1), 
+            position: { x: world.x - 12.7, y: world.y - 12.7 }, 
+            rotation: 0, 
+            junctionType: 'smooth' 
+          };
+          
+          const jPinId = `${jId}_p1`;
           const p1 = allPins.find(p => p.id === t.fromPinId);
           const p2 = allPins.find(p => p.id === t.toPinId);
           
@@ -387,19 +391,29 @@ const App: React.FC = () => {
              }
           }
 
-          const s1 = { id: `tr_${Date.now()}_1`, fromPinId: t.fromPinId, toPinId: jid, width: t.width, color: t.color, c2Offset: offsetIn };
-          const s2 = { id: `tr_${Date.now()}_2`, fromPinId: jid, toPinId: t.toPinId, width: t.width, color: t.color, c1Offset: offsetOut };
+          const s1 = { id: `tr_${Date.now()}_1`, fromPinId: t.fromPinId, toPinId: jPinId, width: t.width, color: t.color, c2Offset: offsetIn };
+          const s2 = { id: `tr_${Date.now()}_2`, fromPinId: jPinId, toPinId: t.toPinId, width: t.width, color: t.color, c1Offset: offsetOut };
           
+          setComponents(prev => [...prev, newJ]);
           setTraces(prev => [...prev.filter(tr => tr.id !== t.id), s1, s2]);
-          const newCId = jid.split('_')[0]; setSelectedIds(new Set([newCId]));
-          dragRef.current = { type: 'move', id: newCId, startWorld: world, offset: {x:0, y:0}, hasMoved: true, initialComp: components.find(c => c.id === newCId) };
+          setSelectedIds(new Set([jId]));
+          
+          // Switch to Move mode immediately. Offset is 0 because the component is already centered at world (cursor).
+          dragRef.current = { 
+            type: 'move', 
+            id: jId, 
+            startWorld: world, 
+            offset: { x: 0, y: 0 }, 
+            hasMoved: true, 
+            initialComp: newJ 
+          };
         }
       }
     } else if (drag.type === 'move') {
       const delta = { x: world.x - drag.startWorld.x, y: world.y - drag.startWorld.y };
       if (drag.groupInitialPositions) {
         const mi = drag.groupInitialPositions.get(drag.id!)!; 
-        const isJ = components.find(c => c.id === drag.id)?.footprintId === 'JUNCTION';
+        const isJ = components.find(c => c.id === drag.id)?.footprintId === 'JUNCTION' || drag.initialComp?.footprintId === 'JUNCTION';
         const snp = { x: snap(mi.x + delta.x, isJ), y: snap(mi.y + delta.y, isJ) };
         const fd = { x: snp.x - mi.x, y: snp.y - mi.y };
         setComponents(prev => prev.map(c => { 
@@ -407,7 +421,7 @@ const App: React.FC = () => {
           return (ip && !c.locked) ? { ...c, position: { x: ip.x + fd.x, y: ip.y + fd.y } } : c; 
         }));
       } else {
-        const comp = components.find(c => c.id === drag.id) || (drag.initialComp as PCBComponent);
+        const comp = components.find(c => c.id === drag.id) || drag.initialComp;
         if (comp && !comp.locked) {
           const isJ = comp.footprintId === 'JUNCTION';
           const target = { x: snap(world.x - (drag.offset?.x || 0), isJ), y: snap(world.y - (drag.offset?.y || 0), isJ) };
