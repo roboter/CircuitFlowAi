@@ -29,6 +29,10 @@ const App: React.FC = () => {
   const [viewport, setViewport] = useState({ x: 0, y: 0, scale: 0.5 });
   const [history, setHistory] = useState<{components: PCBComponent[], traces: Trace[]}[]>([]);
 
+  // Track the "current" style to ensure new traces match previous ones
+  const [activeTraceWidth, setActiveTraceWidth] = useState(8);
+  const [activeTraceColor, setActiveTraceColor] = useState('#3b82f6');
+
   const dragRef = useRef<{
     type: 'move' | 'route' | 'pan' | 'marquee' | 'handle' | 'potential_split';
     id?: string;
@@ -39,7 +43,8 @@ const App: React.FC = () => {
     initialComp?: PCBComponent;
     groupInitialPositions?: Map<string, Vector2>;
   } | null>(null);
-  const [routingPreview, setRoutingPreview] = useState<{path: string} | null>(null);
+  
+  const [routingPreview, setRoutingPreview] = useState<{path: string, color: string, width: number} | null>(null);
   const [marquee, setMarquee] = useState<{start: Vector2, end: Vector2} | null>(null);
   const boardRef = useRef<SVGSVGElement>(null);
   const viewportRef = useRef<SVGGElement>(null);
@@ -204,14 +209,14 @@ const App: React.FC = () => {
       if (cts.length === 2) {
         const sP = cts[0].fromPinId.startsWith(isJunc.id) ? cts[0].toPinId : cts[0].fromPinId;
         const eP = cts[1].fromPinId.startsWith(isJunc.id) ? cts[1].toPinId : cts[1].fromPinId;
-        setTraces(prev => [...prev.filter(t => !cts.some(c => c.id === t.id)), { id: `tr_m_${Date.now()}`, fromPinId: sP, toPinId: eP, width: 8, color: '#3b82f6' }]);
+        setTraces(prev => [...prev.filter(t => !cts.some(c => c.id === t.id)), { id: `tr_m_${Date.now()}`, fromPinId: sP, toPinId: eP, width: activeTraceWidth, color: activeTraceColor }]);
         setComponents(prev => prev.filter(c => c.id !== isJunc.id)); setSelectedIds(new Set()); return;
       }
     }
     setComponents(prev => prev.filter(c => !selectedIds.has(c.id)));
     setTraces(prev => prev.filter(t => !selectedIds.has(t.id) && !selectedIds.has(allPins.find(p => p.id === t.fromPinId)?.componentId || '') && !selectedIds.has(allPins.find(p => p.id === t.toPinId)?.componentId || '')));
     setSelectedIds(new Set());
-  }, [selectedIds, components, traces, saveToHistory, allPins]);
+  }, [selectedIds, components, traces, saveToHistory, allPins, activeTraceWidth, activeTraceColor]);
 
   const rotateSelected = useCallback(() => {
     if (selectedIds.size === 0) return;
@@ -219,57 +224,35 @@ const App: React.FC = () => {
     setComponents(prev => prev.map(c => (selectedIds.has(c.id) && !c.locked) ? {...c, rotation: (c.rotation+90)%360} : c));
   }, [selectedIds, saveToHistory]);
 
+  const onUpdateTrace = (id: string, updates: Partial<Trace>) => {
+    saveToHistory();
+    setTraces(prev => prev.map(t => (t.id === id || selectedIds.has(t.id)) ? { ...t, ...updates } : t));
+    // Also update global defaults if we are editing traces
+    if (updates.width) setActiveTraceWidth(updates.width);
+    if (updates.color) setActiveTraceColor(updates.color);
+  };
+
   // Global Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't trigger shortcuts if user is typing in an input field
-      if (document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement) {
-        return;
-      }
-
+      if (document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement) return;
       const isMod = e.metaKey || e.ctrlKey;
       const key = e.key.toLowerCase();
-
-      // Undo: Ctrl/Cmd + Z
-      if (isMod && key === 'z') {
-        e.preventDefault();
-        undo();
-        return;
-      }
-
+      if (isMod && key === 'z') { e.preventDefault(); undo(); return; }
       switch (key) {
-        case 's':
-        case 'v':
-          setTool('select');
-          break;
-        case 'p':
-        case 'h':
-          setTool('pan');
-          break;
-        case ' ': // Space to toggle tools
-          e.preventDefault();
-          setTool(prev => prev === 'select' ? 'pan' : 'select');
-          break;
-        case 'r':
-          rotateSelected();
-          break;
-        case 'delete':
-        case 'backspace':
-          deleteSelected();
-          break;
-        case 'c':
-          centerView();
-          break;
-        case 'd':
-          runDRC();
-          break;
+        case 's': case 'v': setTool('select'); break;
+        case 'p': case 'h': setTool('pan'); break;
+        case ' ': e.preventDefault(); setTool(prev => prev === 'select' ? 'pan' : 'select'); break;
+        case 'r': rotateSelected(); break;
+        case 'delete': case 'backspace': deleteSelected(); break;
+        case 'c': centerView(); break;
+        case 'd': runDRC(); break;
         case 'escape':
           if (pendingFootprintId) setPendingFootprintId(null);
           else setSelectedIds(new Set());
           break;
       }
     };
-
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [undo, rotateSelected, deleteSelected, centerView, runDRC, pendingFootprintId]);
@@ -343,21 +326,23 @@ const App: React.FC = () => {
     if (allHits.length > 0) {
       let nextId = allHits[0];
       if (selectedIds.has(nextId) && !e.shiftKey) nextId = allHits[(allHits.findIndex(h => selectedIds.has(h)) + 1) % allHits.length];
+      
+      // Inherit style from selection if it's a trace
+      const hitTrace = traces.find(t => t.id === nextId);
+      if (hitTrace) {
+        setActiveTraceWidth(hitTrace.width);
+        setActiveTraceColor(hitTrace.color);
+      }
+
       if (e.shiftKey) { const next = new Set(selectedIds); if (next.has(nextId)) next.delete(nextId); else next.add(nextId); setSelectedIds(next); }
       else if (!selectedIds.has(nextId)) setSelectedIds(new Set([nextId]));
 
       if (hitComps.includes(nextId)) {
         const comp = components.find(c => c.id === nextId);
-        if (comp && comp.locked) {
-           dragRef.current = null;
-           return;
-        }
-
+        if (comp && comp.locked) { dragRef.current = null; return; }
         saveToHistory(); const map = new Map(); 
         if (selectedIds.has(nextId) && selectedIds.size > 1) { 
-           components.forEach(c => { 
-             if(selectedIds.has(c.id) && !c.locked) map.set(c.id, {...c.position}); 
-           }); 
+           components.forEach(c => { if(selectedIds.has(c.id) && !c.locked) map.set(c.id, {...c.position}); }); 
         }
         const pinRef = allPins.find(p => p.componentId === nextId);
         dragRef.current = { type: 'move', id: nextId, startWorld: world, offset: pinRef ? { x: world.x - pinRef.globalPos!.x, y: world.y - pinRef.globalPos!.y } : { x: 0, y: 0 }, groupInitialPositions: map.size > 0 ? map : undefined, hasMoved: false };
@@ -379,11 +364,9 @@ const App: React.FC = () => {
     setHoveredPinId(hp?.id || null);
     
     const hc = components.find(c => {
-      const f = getFootprint(c.footprintId);
-      if(!f) return false;
+      const f = getFootprint(c.footprintId); if(!f) return false;
       const slop = c.footprintId === 'JUNCTION' ? 18 : 10;
-      return world.x >= c.position.x - slop && world.x <= c.position.x + f.width + slop &&
-             world.y >= c.position.y - slop && world.y <= c.position.y + f.height + slop;
+      return world.x >= c.position.x - slop && world.x <= c.position.x + f.width + slop && world.y >= c.position.y - slop && world.y <= c.position.y + f.height + slop;
     });
     setHoveredCompId(hc?.id || null);
 
@@ -403,35 +386,21 @@ const App: React.FC = () => {
         
         const junctionPinId = drag.handleIdx === 1 ? t.fromPinId : t.toPinId;
         const junctionComp = components.find(c => junctionPinId.startsWith(c.id) && c.footprintId === 'JUNCTION');
-        
         if (junctionComp && junctionComp.junctionType !== 'independent') {
           const neighbors = prev.filter(tr => tr.id !== t.id && (tr.fromPinId === junctionPinId || tr.toPinId === junctionPinId));
           if (neighbors.length === 1) {
-            const n = neighbors[0];
-            const isNFrom = n.fromPinId === junctionPinId;
+            const n = neighbors[0]; const isNFrom = n.fromPinId === junctionPinId;
             const currentNOffset = isNFrom ? (n.c1Offset || {x:0, y:0}) : (n.c2Offset || {x:0, y:0});
-            
             let finalNOffset;
-            if (junctionComp.junctionType === 'smooth') {
-              // Mirrored
-              finalNOffset = { x: -offset.x, y: -offset.y };
-            } else {
-              // Linear: flip direction, keep length
+            if (junctionComp.junctionType === 'smooth') finalNOffset = { x: -offset.x, y: -offset.y };
+            else {
               const offsetLen = Math.hypot(offset.x, offset.y);
               if (offsetLen > 0.1) {
                 const nLen = Math.hypot(currentNOffset.x, currentNOffset.y);
-                finalNOffset = { 
-                  x: (-offset.x / offsetLen) * nLen, 
-                  y: (-offset.y / offsetLen) * nLen 
-                };
-              } else {
-                finalNOffset = currentNOffset;
-              }
+                finalNOffset = { x: (-offset.x / offsetLen) * nLen, y: (-offset.y / offsetLen) * nLen };
+              } else finalNOffset = currentNOffset;
             }
-            
-            setTimeout(() => {
-              setTraces(curr => curr.map(tr => tr.id === n.id ? (isNFrom ? { ...tr, c1Offset: finalNOffset } : { ...tr, c2Offset: finalNOffset }) : tr));
-            }, 0);
+            setTimeout(() => setTraces(curr => curr.map(tr => tr.id === n.id ? (isNFrom ? { ...tr, c1Offset: finalNOffset } : { ...tr, c2Offset: finalNOffset }) : tr)), 0);
           }
         }
         return updated;
@@ -441,92 +410,44 @@ const App: React.FC = () => {
         const t = traces.find(tr => tr.id === drag.id);
         if (t) {
           saveToHistory();
-          
           const jId = `comp_junc_${Date.now()}`;
-          const newJ: PCBComponent = { 
-            id: jId, 
-            footprintId: 'JUNCTION', 
-            name: 'J' + (components.length + 1), 
-            position: { x: world.x - 12.7, y: world.y - 12.7 }, 
-            rotation: 0, 
-            junctionType: 'smooth' 
-          };
-          
-          const jPinId = `${jId}_p1`;
-          const p1 = allPins.find(p => p.id === t.fromPinId);
-          const p2 = allPins.find(p => p.id === t.toPinId);
-          
-          let offsetIn = { x: 0, y: 0 };
-          let offsetOut = { x: 0, y: 0 };
-          
+          const newJ: PCBComponent = { id: jId, footprintId: 'JUNCTION', name: 'J' + (components.length + 1), position: { x: world.x - 12.7, y: world.y - 12.7 }, rotation: 0, junctionType: 'smooth' };
+          const jPinId = `${jId}_p1`; const p1 = allPins.find(p => p.id === t.fromPinId); const p2 = allPins.find(p => p.id === t.toPinId);
+          let offsetIn = { x: 0, y: 0 }, offsetOut = { x: 0, y: 0 };
           if (p1 && p2) {
              const dir = { x: p2.globalPos!.x - p1.globalPos!.x, y: p2.globalPos!.y - p1.globalPos!.y };
              const len = Math.hypot(dir.x, dir.y);
              if (len > 0.1) {
-                const unit = { x: dir.x / len, y: dir.y / len };
-                const tension = 30; 
-                offsetIn = { x: -unit.x * tension, y: -unit.y * tension };
-                offsetOut = { x: unit.x * tension, y: unit.y * tension };
+                const unit = { x: dir.x / len, y: dir.y / len }; const tension = 30; 
+                offsetIn = { x: -unit.x * tension, y: -unit.y * tension }; offsetOut = { x: unit.x * tension, y: unit.y * tension };
              }
           }
-
-          // CRITICAL FIX: Preserve original control point offsets at the ends to prevent breaking existing junction smoothness
-          const s1 = { 
-            id: `tr_${Date.now()}_1`, 
-            fromPinId: t.fromPinId, 
-            toPinId: jPinId, 
-            width: t.width, 
-            color: t.color, 
-            c1Offset: t.c1Offset, 
-            c2Offset: offsetIn 
-          };
-          const s2 = { 
-            id: `tr_${Date.now()}_2`, 
-            fromPinId: jPinId, 
-            toPinId: t.toPinId, 
-            width: t.width, 
-            color: t.color, 
-            c1Offset: offsetOut, 
-            c2Offset: t.c2Offset 
-          };
-          
-          setComponents(prev => [...prev, newJ]);
-          setTraces(prev => [...prev.filter(tr => tr.id !== t.id), s1, s2]);
-          setSelectedIds(new Set([jId]));
-          
-          // Switch to Move mode immediately. Offset is 0 because the component is already centered at world (cursor).
-          dragRef.current = { 
-            type: 'move', 
-            id: jId, 
-            startWorld: world, 
-            offset: { x: 0, y: 0 }, 
-            hasMoved: true, 
-            initialComp: newJ 
-          };
+          const s1 = { id: `tr_${Date.now()}_1`, fromPinId: t.fromPinId, toPinId: jPinId, width: t.width, color: t.color, c1Offset: t.c1Offset, c2Offset: offsetIn };
+          const s2 = { id: `tr_${Date.now()}_2`, fromPinId: jPinId, toPinId: t.toPinId, width: t.width, color: t.color, c1Offset: offsetOut, c2Offset: t.c2Offset };
+          setComponents(prev => [...prev, newJ]); setTraces(prev => [...prev.filter(tr => tr.id !== t.id), s1, s2]); setSelectedIds(new Set([jId]));
+          dragRef.current = { type: 'move', id: jId, startWorld: world, offset: { x: 0, y: 0 }, hasMoved: true, initialComp: newJ };
         }
       }
     } else if (drag.type === 'move') {
       const delta = { x: world.x - drag.startWorld.x, y: world.y - drag.startWorld.y };
       if (drag.groupInitialPositions) {
-        const mi = drag.groupInitialPositions.get(drag.id!)!; 
-        const isJ = components.find(c => c.id === drag.id)?.footprintId === 'JUNCTION' || drag.initialComp?.footprintId === 'JUNCTION';
-        const snp = { x: snap(mi.x + delta.x, isJ), y: snap(mi.y + delta.y, isJ) };
-        const fd = { x: snp.x - mi.x, y: snp.y - mi.y };
-        setComponents(prev => prev.map(c => { 
-          const ip = drag.groupInitialPositions!.get(c.id); 
-          return (ip && !c.locked) ? { ...c, position: { x: ip.x + fd.x, y: ip.y + fd.y } } : c; 
-        }));
+        const mi = drag.groupInitialPositions.get(drag.id!)!; const isJ = components.find(c => c.id === drag.id)?.footprintId === 'JUNCTION' || drag.initialComp?.footprintId === 'JUNCTION';
+        const snp = { x: snap(mi.x + delta.x, isJ), y: snap(mi.y + delta.y, isJ) }; const fd = { x: snp.x - mi.x, y: snp.y - mi.y };
+        setComponents(prev => prev.map(c => { const ip = drag.groupInitialPositions!.get(c.id); return (ip && !c.locked) ? { ...c, position: { x: ip.x + fd.x, y: ip.y + fd.y } } : c; }));
       } else {
         const comp = components.find(c => c.id === drag.id) || drag.initialComp;
         if (comp && !comp.locked) {
-          const isJ = comp.footprintId === 'JUNCTION';
-          const target = { x: snap(world.x - (drag.offset?.x || 0), isJ), y: snap(world.y - (drag.offset?.y || 0), isJ) };
+          const isJ = comp.footprintId === 'JUNCTION'; const target = { x: snap(world.x - (drag.offset?.x || 0), isJ), y: snap(world.y - (drag.offset?.y || 0), isJ) };
           setComponents(prev => prev.map(c => c.id === drag.id ? { ...c, position: getCompPosForPinTarget(comp.footprintId, target, comp.rotation) } : c));
         }
       }
     } else if (drag.type === 'route') {
       const sp = allPins.find(p => p.id === drag.id);
-      if (sp) setRoutingPreview({ path: generateBezierPath(sp.globalPos!, (hp ? hp.globalPos! : world)) });
+      if (sp) setRoutingPreview({ 
+        path: generateBezierPath(sp.globalPos!, (hp ? hp.globalPos! : world)), 
+        color: activeTraceColor, 
+        width: activeTraceWidth 
+      });
     } else if (drag.type === 'marquee') {
       setMarquee({ start: drag.startWorld, end: world });
       const minX = Math.min(drag.startWorld.x, world.x), maxX = Math.max(drag.startWorld.x, world.x), minY = Math.min(drag.startWorld.y, world.y), maxY = Math.max(drag.startWorld.y, world.y);
@@ -542,7 +463,13 @@ const App: React.FC = () => {
       const world = getScreenToWorld(e.clientX, e.clientY);
       const ep = allPins.find(p => checkCollision(p.globalPos!, world, 15) && p.id !== drag.id);
       if (ep && drag.id) { 
-        saveToHistory(); setTraces(prev => [...prev, { id: `tr_${Date.now()}`, fromPinId: drag.id!, toPinId: ep.id, width: 8, color: '#3b82f6' }]); 
+        saveToHistory(); setTraces(prev => [...prev, { 
+          id: `tr_${Date.now()}`, 
+          fromPinId: drag.id!, 
+          toPinId: ep.id, 
+          width: activeTraceWidth, 
+          color: activeTraceColor 
+        }]); 
       }
     }
     dragRef.current = null; setRoutingPreview(null); setMarquee(null); setHoveredPinId(null);
@@ -553,45 +480,26 @@ const App: React.FC = () => {
     setSelectedIds(new Set(wholeTrace));
   };
 
-  const onUpdateTrace = (id: string, updates: Partial<Trace>) => {
-    saveToHistory();
-    setTraces(prev => prev.map(t => (t.id === id || selectedIds.has(t.id)) ? { ...t, ...updates } : t));
-  };
-
   const onUpdateComponent = (id: string, updates: Partial<PCBComponent>) => {
     saveToHistory();
     setComponents(prev => prev.map(c => {
       if (c.id !== id) return c;
       const nextC = { ...c, ...updates };
-      // If junction mode changed, realign connected traces immediately
       if (c.footprintId === 'JUNCTION' && (updates.junctionType === 'smooth' || updates.junctionType === 'linear')) {
-        const pinId = `${id}_p1`;
-        const connected = traces.filter(t => t.fromPinId === pinId || t.toPinId === pinId);
+        const pinId = `${id}_p1`; const connected = traces.filter(t => t.fromPinId === pinId || t.toPinId === pinId);
         if (connected.length === 2) {
-          const t1 = connected[0], t2 = connected[1];
-          const isT1From = t1.fromPinId === pinId;
-          const isT2From = t2.fromPinId === pinId;
-          const currentOffset = isT1From ? (t1.c1Offset || {x:0, y:0}) : (t1.c2Offset || {x:0, y:0});
-          const nOffset = isT2From ? (t2.c1Offset || {x:0, y:0}) : (t2.c2Offset || {x:0, y:0});
-          
+          const t1 = connected[0], t2 = connected[1]; const isT1From = t1.fromPinId === pinId; const isT2From = t2.fromPinId === pinId;
+          const currentOffset = isT1From ? (t1.c1Offset || {x:0, y:0}) : (t1.c2Offset || {x:0, y:0}); const nOffset = isT2From ? (t2.c1Offset || {x:0, y:0}) : (t2.c2Offset || {x:0, y:0});
           let alignedNOffset;
-          if (updates.junctionType === 'smooth') {
-            alignedNOffset = { x: -currentOffset.x, y: -currentOffset.y };
-          } else {
-            // Linear alignment
+          if (updates.junctionType === 'smooth') alignedNOffset = { x: -currentOffset.x, y: -currentOffset.y };
+          else {
             const offsetLen = Math.hypot(currentOffset.x, currentOffset.y);
             if (offsetLen > 0.1) {
               const nLen = Math.hypot(nOffset.x, nOffset.y);
               alignedNOffset = { x: (-currentOffset.x / offsetLen) * nLen, y: (-currentOffset.y / offsetLen) * nLen };
-            } else {
-              alignedNOffset = nOffset;
-            }
+            } else alignedNOffset = nOffset;
           }
-          
-          setTraces(curr => curr.map(tr => {
-            if (tr.id === t2.id) return isT2From ? { ...tr, c1Offset: alignedNOffset } : { ...tr, c2Offset: alignedNOffset };
-            return tr;
-          }));
+          setTraces(curr => curr.map(tr => tr.id === t2.id ? (isT2From ? { ...tr, c1Offset: alignedNOffset } : { ...tr, c2Offset: alignedNOffset }) : tr));
         }
       }
       return nextC;
@@ -631,11 +539,9 @@ const App: React.FC = () => {
           centerView={centerView} rotateSelected={rotateSelected}
           deleteSelected={deleteSelected} handleZoom={(d) => {
             const svg = boardRef.current; if (!svg) return;
-            const rect = svg.getBoundingClientRect();
-            const cx = rect.width / 2, cy = rect.height / 2;
+            const rect = svg.getBoundingClientRect(); const cx = rect.width / 2, cy = rect.height / 2;
             setViewport(v => {
-              const factor = d > 0 ? 1.15 : 0.85;
-              const nextScale = Math.min(Math.max(v.scale * factor, 0.1), 5);
+              const factor = d > 0 ? 1.15 : 0.85; const nextScale = Math.min(Math.max(v.scale * factor, 0.1), 5);
               const wx = (cx - v.x) / v.scale, wy = (cy - v.y) / v.scale;
               return { x: cx - wx * nextScale, y: cy - wy * nextScale, scale: nextScale };
             });
@@ -653,8 +559,7 @@ const App: React.FC = () => {
             const rect = boardRef.current?.getBoundingClientRect(); if (!rect) return;
             const mx = e.clientX - rect.left, my = e.clientY - rect.top;
             setViewport(v => {
-              const factor = e.deltaY < 0 ? 1.1 : 0.9;
-              const nextScale = Math.min(Math.max(v.scale * factor, 0.1), 10);
+              const factor = e.deltaY < 0 ? 1.1 : 0.9; const nextScale = Math.min(Math.max(v.scale * factor, 0.1), 10);
               const wx = (mx - v.x) / v.scale, wy = (my - v.y) / v.scale;
               return { x: mx - wx * nextScale, y: my - wy * nextScale, scale: nextScale };
             });

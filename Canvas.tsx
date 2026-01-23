@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { PCBComponent, Trace, Vector2, Pin } from './types';
 import { SNAP_SIZE } from './constants';
@@ -13,7 +14,7 @@ interface CanvasProps {
   hoveredPinId: string | null;
   hoveredCompId: string | null;
   viewport: { x: number; y: number; scale: number };
-  routingPreview: { path: string } | null;
+  routingPreview: { path: string, color: string, width: number } | null;
   marquee: { start: Vector2; end: Vector2 } | null;
   violationMarkers: Vector2[];
   pendingFootprintId: string | null;
@@ -169,7 +170,7 @@ const Canvas: React.FC<CanvasProps> = ({
           </g>
         )}
 
-        {routingPreview && <path d={routingPreview.path} stroke="#3b82f6" strokeWidth="6" fill="none" strokeDasharray="8 4" className="opacity-50" />}
+        {routingPreview && <path d={routingPreview.path} stroke={routingPreview.color} strokeWidth={routingPreview.width} fill="none" strokeDasharray="8 4" className="opacity-50" />}
         
         {violationMarkers.map((m, i) => (
           <g key={i} transform={`translate(${m.x}, ${m.y})`}>
