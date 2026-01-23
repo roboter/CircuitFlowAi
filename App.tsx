@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { PCBComponent, Trace, Vector2 } from './types';
 import { FOOTPRINTS, SNAP_SIZE, getFootprint } from './constants';
@@ -194,6 +195,84 @@ const App: React.FC = () => {
     const lx = foot.pins[0].localPos.x - foot.width/2, ly = foot.pins[0].localPos.y - foot.height/2;
     return { x: target.x - (lx * cos - ly * sin + foot.width/2), y: target.y - (lx * sin + ly * cos + foot.height/2) };
   };
+
+  const deleteSelected = useCallback(() => {
+    if (selectedIds.size === 0) return; saveToHistory();
+    const isJunc = components.find(c => selectedIds.has(c.id) && c.footprintId === 'JUNCTION');
+    if (isJunc && selectedIds.size === 1) {
+      const cts = traces.filter(t => t.fromPinId.startsWith(isJunc.id) || t.toPinId.startsWith(isJunc.id));
+      if (cts.length === 2) {
+        const sP = cts[0].fromPinId.startsWith(isJunc.id) ? cts[0].toPinId : cts[0].fromPinId;
+        const eP = cts[1].fromPinId.startsWith(isJunc.id) ? cts[1].toPinId : cts[1].fromPinId;
+        setTraces(prev => [...prev.filter(t => !cts.some(c => c.id === t.id)), { id: `tr_m_${Date.now()}`, fromPinId: sP, toPinId: eP, width: 8, color: '#3b82f6' }]);
+        setComponents(prev => prev.filter(c => c.id !== isJunc.id)); setSelectedIds(new Set()); return;
+      }
+    }
+    setComponents(prev => prev.filter(c => !selectedIds.has(c.id)));
+    setTraces(prev => prev.filter(t => !selectedIds.has(t.id) && !selectedIds.has(allPins.find(p => p.id === t.fromPinId)?.componentId || '') && !selectedIds.has(allPins.find(p => p.id === t.toPinId)?.componentId || '')));
+    setSelectedIds(new Set());
+  }, [selectedIds, components, traces, saveToHistory, allPins]);
+
+  const rotateSelected = useCallback(() => {
+    if (selectedIds.size === 0) return;
+    saveToHistory(); 
+    setComponents(prev => prev.map(c => (selectedIds.has(c.id) && !c.locked) ? {...c, rotation: (c.rotation+90)%360} : c));
+  }, [selectedIds, saveToHistory]);
+
+  // Global Keyboard Shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger shortcuts if user is typing in an input field
+      if (document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      const isMod = e.metaKey || e.ctrlKey;
+      const key = e.key.toLowerCase();
+
+      // Undo: Ctrl/Cmd + Z
+      if (isMod && key === 'z') {
+        e.preventDefault();
+        undo();
+        return;
+      }
+
+      switch (key) {
+        case 's':
+        case 'v':
+          setTool('select');
+          break;
+        case 'p':
+        case 'h':
+          setTool('pan');
+          break;
+        case ' ': // Space to toggle tools
+          e.preventDefault();
+          setTool(prev => prev === 'select' ? 'pan' : 'select');
+          break;
+        case 'r':
+          rotateSelected();
+          break;
+        case 'delete':
+        case 'backspace':
+          deleteSelected();
+          break;
+        case 'c':
+          centerView();
+          break;
+        case 'd':
+          runDRC();
+          break;
+        case 'escape':
+          if (pendingFootprintId) setPendingFootprintId(null);
+          else setSelectedIds(new Set());
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [undo, rotateSelected, deleteSelected, centerView, runDRC, pendingFootprintId]);
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (!e.isPrimary) return;
@@ -474,23 +553,6 @@ const App: React.FC = () => {
     setSelectedIds(new Set(wholeTrace));
   };
 
-  const deleteSelected = useCallback(() => {
-    if (selectedIds.size === 0) return; saveToHistory();
-    const isJunc = components.find(c => selectedIds.has(c.id) && c.footprintId === 'JUNCTION');
-    if (isJunc && selectedIds.size === 1) {
-      const cts = traces.filter(t => t.fromPinId.startsWith(isJunc.id) || t.toPinId.startsWith(isJunc.id));
-      if (cts.length === 2) {
-        const sP = cts[0].fromPinId.startsWith(isJunc.id) ? cts[0].toPinId : cts[0].fromPinId;
-        const eP = cts[1].fromPinId.startsWith(isJunc.id) ? cts[1].toPinId : cts[1].fromPinId;
-        setTraces(prev => [...prev.filter(t => !cts.some(c => c.id === t.id)), { id: `tr_m_${Date.now()}`, fromPinId: sP, toPinId: eP, width: 8, color: '#3b82f6' }]);
-        setComponents(prev => prev.filter(c => c.id !== isJunc.id)); setSelectedIds(new Set()); return;
-      }
-    }
-    setComponents(prev => prev.filter(c => !selectedIds.has(c.id)));
-    setTraces(prev => prev.filter(t => !selectedIds.has(t.id) && !selectedIds.has(allPins.find(p => p.id === t.fromPinId)?.componentId || '') && !selectedIds.has(allPins.find(p => p.id === t.toPinId)?.componentId || '')));
-    setSelectedIds(new Set());
-  }, [selectedIds, components, traces, saveToHistory, allPins]);
-
   const onUpdateTrace = (id: string, updates: Partial<Trace>) => {
     saveToHistory();
     setTraces(prev => prev.map(t => (t.id === id || selectedIds.has(t.id)) ? { ...t, ...updates } : t));
@@ -566,7 +628,7 @@ const App: React.FC = () => {
       <div className="flex-1 relative overflow-hidden bg-[#050C07]">
         <Toolbar 
           tool={tool} setTool={setTool} undo={undo} canUndo={history.length > 0}
-          centerView={centerView} rotateSelected={() => { saveToHistory(); setComponents(prev => prev.map(c => (selectedIds.has(c.id) && !c.locked) ? {...c, rotation: (c.rotation+90)%360} : c)); }}
+          centerView={centerView} rotateSelected={rotateSelected}
           deleteSelected={deleteSelected} handleZoom={(d) => {
             const svg = boardRef.current; if (!svg) return;
             const rect = svg.getBoundingClientRect();

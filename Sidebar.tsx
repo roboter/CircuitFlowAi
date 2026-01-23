@@ -1,8 +1,8 @@
+
 import React from 'react';
 import { FOOTPRINTS } from './constants';
 import { 
   CircuitBoard, 
-  Plus, 
   AlertTriangle, 
   CheckCircle2, 
   ShieldCheck, 
@@ -12,18 +12,22 @@ import {
   Upload, 
   RefreshCw, 
   Sparkles,
-  Cpu,
-  Zap,
-  CircleDot,
-  Box,
-  Lightbulb,
-  ArrowRightLeft,
-  Wind,
-  Triangle,
-  Disc,
-  Grid,
-  Rows
+  Plus
 } from 'lucide-react';
+
+// Import custom icons as components
+import { Resistor } from './icons/Resistor';
+import { CapacitorElectrolytic } from './icons/CapacitorElectrolytic';
+import { CapacitorCeramic } from './icons/CapacitorCeramic';
+import { LED } from './icons/LED';
+import { Diode } from './icons/Diode';
+import { Transistor } from './icons/Transistor';
+import { Inductor } from './icons/Inductor';
+import { ArduinoNano } from './icons/ArduinoNano';
+import { DIP } from './icons/DIP';
+import { Header } from './icons/Header';
+import { PinIcon } from './icons/Pin';
+import { SwitchIcon } from './icons/Switch';
 
 interface SidebarProps {
   pendingFootprintId: string | null;
@@ -39,18 +43,20 @@ interface SidebarProps {
   loadExample: () => void;
 }
 
-const ICON_MAP: Record<string, any> = {
-  'arduino_nano': Cpu,
-  'resistor': Zap,
-  'capacitor_electrolytic': CircleDot,
-  'capacitor_ceramic': Box,
-  'led': Lightbulb,
-  'diode': ArrowRightLeft,
-  'inductor': Wind,
-  'transistor': Triangle,
-  'pin': Disc,
-  'dip': Grid,
-  'header': Rows
+// Map IDs to their corresponding React components
+const ICON_MAP: Record<string, React.FC<React.SVGProps<SVGSVGElement>>> = {
+  'resistor': Resistor,
+  'capacitor_electrolytic': CapacitorElectrolytic,
+  'capacitor_ceramic': CapacitorCeramic,
+  'led': LED,
+  'diode': Diode,
+  'transistor': Transistor,
+  'inductor': Inductor,
+  'arduino_nano': ArduinoNano,
+  'dip': DIP,
+  'header': Header,
+  'pin': PinIcon,
+  'tactile_switch': SwitchIcon
 };
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -65,11 +71,12 @@ const Sidebar: React.FC<SidebarProps> = ({
       </div>
       
       <div className="flex flex-col gap-4 overflow-hidden">
-        <label className="text-[10px] font-black text-emerald-900 uppercase tracking-widest px-2 opacity-50">COMPONENTS</label>
+        <label className="text-[10px] font-black text-emerald-900 uppercase tracking-widest px-2 opacity-50">LIBRARY</label>
         <div className="grid grid-cols-3 gap-2 overflow-y-auto pr-1 scrollbar-none max-h-[50vh]">
           {FOOTPRINTS.filter(f => f.id !== 'JUNCTION').map(f => {
-            const Icon = ICON_MAP[f.id] || Plus;
             const isPending = pendingFootprintId === f.id;
+            const IconComponent = ICON_MAP[f.id];
+            
             return (
               <button 
                 key={f.id} 
@@ -81,7 +88,13 @@ const Sidebar: React.FC<SidebarProps> = ({
                     : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-emerald-500 hover:bg-[#152B1B] hover:text-emerald-400'
                 }`}
               >
-                <Icon size={24} className={isPending ? "text-black" : "opacity-80"} />
+                <div className="w-full h-full flex items-center justify-center p-1">
+                  {IconComponent ? (
+                    <IconComponent width="100%" height="100%" />
+                  ) : (
+                    <Plus size={20} />
+                  )}
+                </div>
               </button>
             );
           })}
@@ -94,9 +107,11 @@ const Sidebar: React.FC<SidebarProps> = ({
             <span className="text-[10px] font-black text-emerald-900 uppercase tracking-widest">DRC STATUS</span>
             <button 
               onClick={(e) => { e.stopPropagation(); runDRC(); }} 
-              className="hover:bg-zinc-800 p-1.5 rounded-lg text-zinc-500 hover:text-emerald-500 transition-colors"
+              className="group relative hover:bg-zinc-800 p-1.5 rounded-lg text-zinc-500 hover:text-emerald-500 transition-colors"
+              title="Run DRC Check [D]"
             >
               <RefreshCw size={14} className={isDrcRunning ? "animate-spin" : ""} />
+              <span className="absolute -top-1 -right-1 text-[8px] font-black bg-zinc-900 text-emerald-500 px-1 rounded border border-emerald-900/50 opacity-0 group-hover:opacity-100 transition-opacity">D</span>
             </button>
           </div>
           <div className={`flex items-center gap-3 p-4 rounded-xl border transition-all ${

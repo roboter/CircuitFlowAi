@@ -176,6 +176,19 @@ export const FOOTPRINTS: Footprint[] = [
     "shape": 'rect'
   },
   {
+    "id": "tactile_switch",
+    "name": "Tactile Switch",
+    "width": 76.2,
+    "height": 76.2,
+    "pins": [
+      {"id": "1", "componentId": "", "name": "1", "localPos": {"x": 12.7, "y": 12.7}, "type": "io"},
+      {"id": "2", "componentId": "", "name": "2", "localPos": {"x": 63.5, "y": 12.7}, "type": "io"},
+      {"id": "3", "componentId": "", "name": "3", "localPos": {"x": 12.7, "y": 63.5}, "type": "io"},
+      {"id": "4", "componentId": "", "name": "4", "localPos": {"x": 63.5, "y": 63.5}, "type": "io"}
+    ],
+    "shape": 'rect'
+  },
+  {
     "id": "inductor",
     "name": "Power Inductor",
     "width": 76.2,
